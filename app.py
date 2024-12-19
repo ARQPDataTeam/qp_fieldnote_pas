@@ -20,7 +20,7 @@ else:
     local = False
 
 # Version number to display
-version = "2.1"
+version = "2.2"
 
 # Setup logger
 if not os.path.exists('logs'):
