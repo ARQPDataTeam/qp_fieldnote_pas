@@ -754,6 +754,7 @@ def upload_log(n,site,instrument,project,startdt,timezone,userinput,note,flag):
         startdt = startdt.replace("T", " ")
         if isinstance(note,list):
             note = ','.join(note)
+        flag_shortcode = flag_table['flag_code'].loc[flag_table['description']==flag].tolist()[0]
             
         try:
             user = users['fullname'].loc[users['piemail'].str.lower()==userinput.lower()].values[0]
@@ -772,7 +773,7 @@ def upload_log(n,site,instrument,project,startdt,timezone,userinput,note,flag):
             user,'FIELD', 
             startdt,'', 
             note.replace("'","''"),'', 
-            instrument,flag))
+            instrument,flag_shortcode))
             
             conn.execute(tz_set_query)
             conn.execute(InsertLog)
