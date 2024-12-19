@@ -10,9 +10,14 @@ from datetime import datetime
 import os
 import logging
 from dash_breakpoints import WindowBreakpoints
+import socket
 
 # Local dev boolean
-local = True
+computer = socket.gethostname()
+if computer == 'WONTN774787':
+    local = True
+else:
+    local = False
 
 # Version number to display
 version = "2.0"
