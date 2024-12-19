@@ -570,30 +570,7 @@ def project_update(project,breakpoint_name: str,temp_var):
     
     
     global logs
-    # Find database corresponding to selected project
-    database = databases['database'].loc[databases['label']==project].tolist()[0]  
-    
-    sql_engine_string=sql_engine_string_generator('DATAHUB_PSQL_SERVER',database,'DATAHUB_PSQL_EDITUSER','DATAHUB_PSQL_EDITPASSWORD',local)
-    sql_engine=create_engine(sql_engine_string)
-    
-    logs = pd.read_sql_query(
-        "select * from logs", 
-        sql_engine)
-    sql_engine.dispose()
-    
-    # Format logs table
-    logs_formatted = logs.loc[:,['loguser','datetime','startdt',
-                                 'station','instrument','field_flag',
-                                 'field_comment']]
-    logs_formatted.columns = ['User','Submission Datetime',
-                              'Log Datetime','Station','Instrument',
-                              'Flag','Note']
-    
-    # Sort and format dt
-    logs_formatted = logs_formatted.sort_values(by='Submission Datetime', ascending=False)    
-    logs_formatted['Submission Datetime'] = logs_formatted['Submission Datetime'].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
-    logs_formatted['Log Datetime'] = logs_formatted['Log Datetime'].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
-    
+
     
     # sites for selected project
     sites_filtered = np.sort(sites.loc[sites["projectid"]==project]['short_description']).tolist()
@@ -604,6 +581,32 @@ def project_update(project,breakpoint_name: str,temp_var):
     elif breakpoint_name =="sm":
         return [{'display':'flex'},sites_filtered,""]
     else:
+        
+        # Find database corresponding to selected project
+        database = databases['database'].loc[databases['label']==project].tolist()[0]  
+        
+        sql_engine_string=sql_engine_string_generator('DATAHUB_PSQL_SERVER',database,'DATAHUB_PSQL_EDITUSER','DATAHUB_PSQL_EDITPASSWORD',local)
+        sql_engine=create_engine(sql_engine_string)
+        
+        logs = pd.read_sql_query(
+            "select * from logs", 
+            sql_engine)
+        sql_engine.dispose()
+        
+        # Format logs table
+        logs_formatted = logs.loc[:,['loguser','datetime','startdt',
+                                     'station','instrument','field_flag',
+                                     'field_comment']]
+        logs_formatted.columns = ['User','Submission Datetime',
+                                  'Log Datetime','Station','Instrument',
+                                  'Flag','Note']
+        
+        # Sort and format dt
+        logs_formatted = logs_formatted.sort_values(by='Submission Datetime', ascending=False)    
+        logs_formatted['Submission Datetime'] = logs_formatted['Submission Datetime'].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+        logs_formatted['Log Datetime'] = logs_formatted['Log Datetime'].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+        
+        
         return_logs_table = [dash_table.DataTable(
             style_header={
                 'backgroundColor': 'rgb(30, 30, 30)',
@@ -813,7 +816,7 @@ def before_request():
 #%% Log print statements
 @app.callback(
     Output('logs', 'children'),
-    Input('log_updater', 'n_intervals')  # This triggers the callback on page load
+    Input('log_updater', 'n_intervals')
 )
 def update_log(n):
     with open("logs/log.log","r") as log:
