@@ -5,6 +5,7 @@ openpyxl
 numpy
 xlrd
 dash
+dash_breakpoints
 dash_bootstrap_components
 azure-identity
 azure-storage-blob
