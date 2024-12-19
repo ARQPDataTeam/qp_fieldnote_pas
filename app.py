@@ -20,7 +20,7 @@ else:
     local = False
 
 # Version number to display
-version = "2.2"
+version = "2.3"
 
 # Setup logger
 if not os.path.exists('logs'):
@@ -313,6 +313,16 @@ def change_layout(breakpoint_name: str, window_width: int):
                 target="buttons_div",
                 placement="bottom"
             ),
+            
+            dbc.Row([
+                dbc.Col(id = "logtable_div",
+                        width = 9,
+                        align = "center")
+                ],
+                justify = "center",
+                style={'display':'none'}
+            ),
+            
             html.Div(id='logs'),
             dcc.Interval(id='log_updater',interval = 2000)
         ])
@@ -554,7 +564,7 @@ def change_layout(breakpoint_name: str, window_width: int):
             
             
             html.Div(id='logs'),
-            dcc.Interval(id='log_updater',interval = 2000)
+            dcc.Interval(id='log_updater',interval = 5000)
             
         ])
 
