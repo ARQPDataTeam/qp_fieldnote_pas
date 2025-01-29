@@ -576,11 +576,12 @@ def change_layout(breakpoint_name: str, window_width: int):
     Input('project','value'),
     Input('submit_button','disabled'),
     State("breakpoints", "widthBreakpoint"))
-def project_update(project,breakpoint_name: str,temp_var):
+def project_update(project,temp_var,breakpoint_name: str):
     
     
     global logs
-
+    
+    print(breakpoint_name)
     
     # sites for selected project
     sites_filtered = np.sort(sites.loc[sites["projectid"]==project]['short_description']).tolist()
