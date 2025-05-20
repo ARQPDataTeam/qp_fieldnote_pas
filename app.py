@@ -581,8 +581,6 @@ def project_update(project,temp_var,breakpoint_name: str):
     
     global logs
     
-    print(breakpoint_name)
-    
     # sites for selected project
     sites_filtered = np.sort(sites.loc[sites["projectid"]==project]['short_description']).tolist()
     
@@ -772,7 +770,7 @@ def upload_log(n,site,instrument,project,startdt,timezone,userinput,note,flag):
             flag_shortcode = flag_table['flag_code'].loc[flag_table['description']==flag].tolist()[0]
             
         try:
-            user = users['fullname'].loc[users['piemail'].str.lower()==userinput.lower()].values[0]
+            user = users['usershort'].loc[users['piemail'].str.lower()==userinput.lower()].values[0]
         except:
             user = userinput
                     
