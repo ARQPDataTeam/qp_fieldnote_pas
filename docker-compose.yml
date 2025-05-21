@@ -4,7 +4,7 @@ version: '3.8'
 services:
   web:
     build: .
-    image: ghcr.io/arqpdatateam/log_template_app:latest
-    container_name: log_template_app
+    image: ghcr.io/arqpdatateam/qp_fieldnote:latest
+    container_name: qp_fieldnote
     ports:
       - "80:8080"
