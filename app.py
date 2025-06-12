@@ -1,9 +1,10 @@
-from dash import Dash, html, dcc ,dash_table
-from dash.dependencies import Input, Output, State
+# %% Import + setup
+import dash
+from dash import html, Input, Output, State, ctx, dcc, Dash
 import dash_bootstrap_components as dbc
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine,text
+from sqlalchemy import create_engine
 from credentials import sql_engine_string_generator
 from flask import request
 from datetime import datetime
@@ -20,826 +21,299 @@ else:
     local = False
 
 # Version number to display
-version = "2.3"
+version = "1.1"
 
 # Setup logger
 if not os.path.exists('logs'):
     os.mkdir('logs')
-    
+
 logging.basicConfig(
-    format = '%(message)s',
-    filename='logs/log.log', 
+    format='%(message)s',
+    filename='logs/log.log',
     filemode='w+',
-    level = 20)
+    level=20
+)
 
 logging.getLogger("azure").setLevel(logging.ERROR)
 
-#initialize the dash app as 'app'
+# Initialize the dash app as 'app'
 if not local:
     app = Dash(__name__,
-                external_stylesheets=[dbc.themes.SLATE],
-                requests_pathname_prefix="/app/AQPD/",
-                routes_pathname_prefix="/app/AQPD/")
+               external_stylesheets=[dbc.themes.SLATE],
+               requests_pathname_prefix="/app/AQPD/",
+               routes_pathname_prefix="/app/AQPD/",
+               suppress_callback_exceptions=True)
 else:
     app = Dash(__name__,
-                external_stylesheets=[dbc.themes.SLATE])
+               external_stylesheets=[dbc.themes.SLATE],
+               suppress_callback_exceptions=True)
 
 # Global variable to store headers
 request_headers = {}
 
-# # Get connection string
-# sql_engine_string=sql_engine_string_generator('DATAHUB_PSQL_SERVER','DATAHUB_SWAPIT_DBNAME','DATAHUB_PSQL_EDITUSER','DATAHUB_PSQL_EDITPASSWORD')
-# swapit_sql_engine=create_engine(sql_engine_string)
-
-sql_engine_string=sql_engine_string_generator('DATAHUB_PSQL_SERVER','dcp','DATAHUB_PSQL_EDITUSER','DATAHUB_PSQL_EDITPASSWORD',local)
-dcp_sql_engine=create_engine(sql_engine_string)
+# Get connection string
+sql_engine_string = sql_engine_string_generator('DATAHUB_PSQL_SERVER', 'dcp', 'DATAHUB_PSQL_EDITUSER', 'DATAHUB_PSQL_EDITPASSWORD', local)
+dcp_sql_engine = create_engine(sql_engine_string)
 
 
-# Setup the app layout
-## MOBILE
+# %% Layout function, useful for having two UI options (e.g., mobile vs desktop)
 def serve_layout():
-    
     global databases
     global users
     global sites
     global instruments
     global projects
     global flag_table
-    
-    # pull required data from tables
-    databases = pd.read_sql_table("databases",dcp_sql_engine)
+
+    # Pull required data from tables
+    databases = pd.read_sql_table("databases", dcp_sql_engine)
     users = pd.read_sql_table("users", dcp_sql_engine)
-    sites = pd.read_sql_query(
-        "select * from stations", 
-        dcp_sql_engine)
-    instruments = pd.read_sql_query(
-        "select * from instrument_history where active = 'True'", 
-        dcp_sql_engine)
-    projects = databases['label'].loc[databases['active']==True].values
-    flag_table = pd.read_sql_query(
-        "select * from flags", 
-        dcp_sql_engine)
-    
+    sites = pd.read_sql_query("select * from stations", dcp_sql_engine)
+    instruments = pd.read_sql_query("select * from instrument_history where active = 'True'", dcp_sql_engine)
+    projects = databases['label'].loc[databases['active'] == True].values
+    flag_table = pd.read_sql_query("select * from flags", dcp_sql_engine)
+
     dcp_sql_engine.dispose()
-    
-    
-    return(
-        html.Div([
-            html.Div(id = "display",style={'textAlign': 'center'}),
-            WindowBreakpoints(
-                id="breakpoints",
-                # Define the breakpoint thresholds
-                widthBreakpointThresholdsPx=[768],
-                widthBreakpointNames=["sm", "lg"]
+
+    return html.Div([
+        html.Div(id="display", style={'textAlign': 'center'}),
+        WindowBreakpoints(
+            id="breakpoints",
+            widthBreakpointThresholdsPx=[768],
+            widthBreakpointNames=["sm", "lg"]
+        )
+    ])
+
+
+# %% Function to create textbox rows
+def create_text_row(index: int, value="", editable=True, selection=None):
+    return html.Div(
+        id=f"entry_row_{index}",
+        children=[
+            dbc.Input(
+                id={'type': 'entry-input', 'index': index},
+                type="text",
+                value=value,
+                disabled=not editable,
+                debounce=False,
+                className="mb-2 me-2"
+            ),
+            dcc.RadioItems(
+                id={'type': 'entry-radio', 'index': index},
+                options=[
+                    {'label': 'Sample', 'value': 'Sample'},
+                    {'label': 'Blank', 'value': 'Blank'}
+                ],
+                value='Sample',
+                labelStyle={'display': 'inline-block', 'marginRight': '10px'},
+                inputStyle={"marginRight": "5px"},
+                style={'marginBottom': '10px', 'color': 'white'}
             )
-        ])
+        ],
+        className="d-flex align-items-center",
+        style={'gap': '20px'}
     )
 
+# %% Desktop layout
 @app.callback(
     Output("display", "children"),
     Input("breakpoints", "widthBreakpoint"),
     State("breakpoints", "width"),
 )
 def change_layout(breakpoint_name: str, window_width: int):
-    if breakpoint_name=="sm":
-        return([
-            #title + instructions
-            html.H1('QP Field Log'),
+    return [
+        dbc.Row([
+            html.H1('QP FieldNote - Passive Mercury'),
             html.Div([
                 html.Span('Required fields indicated by '),
-                html.Span('*',style={"color": "red","font-weight": "bold"})
+                html.Span('*', style={"color": "red", "font-weight": "bold"})
             ]),
-            html.Span('v. '+version),
+            html.Span('v. ' + version),
             html.Br(),
-            
-            # User
-            dbc.Row([
-                dbc.Col(
-                    [dbc.Label(html.H2([
-                        "User",
-                        html.Span('*',style={"color": "red","font-weight": "bold"})
-                    ])),
-                    html.Br(),
-                    dcc.Input(
-                        style={'textAlign': 'center'},
-                        id = "user",
-                        placeholder="...",
-                    ),
-                    html.Br()],
-                    width = 8
-                )],
-                id = "user_div",
-                justify = "center"
-            ),
-            
-            # Project
-            dbc.Row([
-                dbc.Col(
-                    [dbc.Label(html.H2([
-                        "Project",
-                        html.Span('*',style={"color": "red","font-weight": "bold"})
-                    ])),
-                    dcc.Dropdown(
-                        projects,
-                        id = "project",
-                        placeholder="..."
-                    ),
-                    html.Br()],
-                    width = 8
-                )],
-                id = "project_div",
-                justify = "center"
-            ),
-            
-            # Site
-            dbc.Row([
-                dbc.Col(
-                    [dbc.Label(html.H2([
-                        "Site",
-                        html.Span('*',style={"color": "red","font-weight": "bold"})
-                    ])),
-                    dcc.Dropdown(
-                        id = "site",
-                        placeholder="...",
-                        optionHeight=50
-                    ),
-                    html.Br()],
-                    width = 8
-                )],
-                id = "site_div",
-                justify = "center",
-                style={'display':'none'}
-            ),
-            
-            # Instrument
-            dbc.Row([
-                dbc.Col(
-                    [dbc.Label(html.H2([
-                        "Instrument",
-                        html.Span('*',style={"color": "red","font-weight": "bold"})
-                    ])),
-                    dcc.Dropdown(
-                        id = "instrument",
-                        placeholder="...",
-                        optionHeight=50
-                    ),
-                    html.Br()],
-                    width = 8
-                )],
-                id = "instrument_div",
-                justify = "center",
-                style={'display':'none'}
-            ),
-            
-            # Flag Category
-            dbc.Row([
-                dbc.Col(
-                    [dbc.Label(html.H2("Flag Category")),
-                    dcc.Dropdown(
-                        options=list(set(flag_table['category'].tolist())),
-                        id = "flag_cat",
-                        placeholder="...",
-                        optionHeight=50
-                    ),
-                    html.Br()],
-                    width = 8
-                )],
-                id = "flagcat_div",
-                justify = "center",
-                style={'display':'none'}
-            ),
-            
-            # Flag
-            dbc.Row([
-                dbc.Col(
-                    [dbc.Label(html.H2("Flag")),
-                    dcc.Dropdown(
-                        id = "flag",
-                        placeholder="...",
-                        optionHeight=50
-                    ),
-                    html.Br()],
-                    width = 8
-                )],
-                id = "flag_div",
-                justify = "center",
-                style={'display':'none'}
-            ),
-            
-            # Note
-            dbc.Row([
-                dbc.Col(
-                    [dbc.Label(html.H2("Note")),
-                    dbc.Input(
-                        placeholder="...", 
-                        id = "note",
-                        type="text"),
-                    html.Br()],
-                    width = 8
-                )],
-                id = "note_div",
-                justify = "center",
-                style={'display':'none'}
-            ),
-            
-            # Date and time
-            dbc.Row([
-                dbc.Col(
-                    [dbc.Label(html.H2([
-                        "Datetime",
-                        html.Span('*',style={"color": "red","font-weight": "bold"})
-                    ])),
-                    dbc.Input(
-                        value = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        placeholder="...",
-                        id = "startdt",
-                        type="datetime-local",
-                        step="1"
-                    )],
-                    width = 8
-                )],
-                id = "date_div",
-                justify = "center",
-                style={'display':'none'}
-            ),
-            
-            # Timezone
-            dbc.Row([
-                dbc.Col([
-                    dcc.Dropdown(
-                        options = ["UTC","EST","EDT"],
-                        value = "EST",
-                        id = "timezone",
-                        placeholder="Timezone",
-                        optionHeight=50
-                    ),
-                    html.Br()],
-                    width = 4
-                )],
-                id = "tz_div",
-                justify = "center",
-                style={'display':'none'}
-            ),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Button(
-                        "Submit",
-                        id = "submit_button",
-                        color="info", 
-                        disabled=True),
-                    html.Br()],
-                    width = 4
-                )],
-                id = "buttons_div",
-                justify = "center",
-                className="d-grid gap-2"
-            ),
-            dbc.Row([
-                dbc.Col([
-                    html.Br(),
-                    dcc.Loading(
-                        id="loading",
-                        type="default",
-                        children=html.Div(id="submit_button_loading")
-                    )],
-                    width = 8
-                )],
-                id = "loading_div",
-                justify = "center"
-            ),
-            dbc.Tooltip(
-                "Required input missing",
-                id="submit_tooltip",
-                target="buttons_div",
-                placement="bottom"
-            ),
-            
-            dbc.Row([
-                dbc.Col(id = "logtable_div",
-                        width = 9,
-                        align = "center")
-                ],
-                justify = "center",
-                style={'display':'none'}
-            ),
-            
-            html.Div(id='logs'),
-            dcc.Interval(id='log_updater',interval = 2000)
-        ])
-    else:
-        return([
-            dbc.Row([
-                #title + instructions
-                html.H1('QP Field Log'),
+        ]),
+        dbc.Row([
+            dbc.Col(
+                dbc.Row(
+                    dbc.Col([
+                        dbc.Label(html.H2([
+                            "User",
+                            html.Span('*', style={"color": "red", "font-weight": "bold"})
+                        ])),
+                        html.Br(),
+                        dcc.Input(
+                            style={'textAlign': 'center'},
+                            id="user",
+                            placeholder="..."
+                        )
+                    ]),
+                    justify="center"
+                ),
+                id="user_div",
+                width=3,
+                align="center",
+            )
+        ], justify="center"),
+        html.Br(),
+        dbc.Row(
+            dbc.Col(
                 html.Div([
-                    html.Span('Required fields indicated by '),
-                    html.Span('*',style={"color": "red","font-weight": "bold"})
+                    dbc.ButtonGroup([
+                        dbc.Button("New", id="btn-new", color="primary"),
+                        dbc.Button("Update", id="btn-update", color="secondary")
+                    ], size="md"),
+                    dbc.Tooltip("Create new sample entry", target="btn-new", placement="top"),
+                    dbc.Tooltip("Update existing sample entry", target="btn-update", placement="top"),
                 ]),
-                html.Span('v. '+version),
-                html.Br(),
-            ]),
-            
-            html.Br(),
-            dbc.Row([
-                # User
-                dbc.Col(
-                    dbc.Row(
-                        dbc.Col(
-                            [dbc.Label(html.H2([
-                                "User",
-                                html.Span('*',style={"color": "red","font-weight": "bold"})
-                            ])),
-                            html.Br(),
-                            dcc.Input(
-                                style={'textAlign': 'center'},
-                                id = "user",
-                                placeholder="...",
-                            )]
-                        ),
-                        justify = "center",
-                        style = {'display':'block'}
-                    ),
-                    id = "user_div",
-                    width = 3,
-                    align = "center"
-                ),
-                # Project
-                dbc.Col(
-                    [dbc.Label(html.H2([
-                        "Project",
-                        html.Span('*',style={"color": "red","font-weight": "bold"})
-                    ])),
-                    dcc.Dropdown(
-                        projects,
-                        id = "project",
-                        placeholder="..."
-                    )],
-                    width = 3,
-                    id = "project_div",
-                    align = "center"
-                ),
-                # Site
-                dbc.Col(
-                    dbc.Row(
-                        dbc.Col(
-                            [dbc.Label(html.H2([
-                                "Site",
-                                html.Span('*',style={"color": "red","font-weight": "bold"})
-                                ])),
-                            dcc.Dropdown(
-                                id = "site",
-                                placeholder="...",
-                                optionHeight=50
-                            )],
-                        ),
-                        justify = "center",
-                        style = {'display':'block'}
-                    ),
-                    width = 3,
-                    id = "site_div",
-                    style = {'display':'none'}
-                )],
-                justify = "center"
+                width="auto",
             ),
-            
-            html.Br(),
-            dbc.Row([
-                # Instrument
-                dbc.Col(
-                    [dbc.Label(html.H2([
-                        "Instrument",
-                        html.Span('*',style={"color": "red","font-weight": "bold"})
-                    ])),
-                    dcc.Dropdown(
-                        id = "instrument",
-                        placeholder="...",
-                        optionHeight=50
-                    )],
-                    width = 3,
-                    id = "instrument_div",
-                    align = "center",
-                    style = {'display':'none'}
-                ),
-                
-                # Flag Category
-                dbc.Col(
-                    [dbc.Label(html.H2("Flag Category")),
-                    dcc.Dropdown(
-                        options=list(set(flag_table['category'].tolist())),
-                        id = "flag_cat",
-                        placeholder="...",
-                        optionHeight=50
-                    )],
-                    width = 3,
-                    id = "flagcat_div",
-                    align = "center",
-                    style = {'display':'none'}
-                ),
-                
-                # Flag
-                dbc.Col(
-                    [dbc.Label(html.H2("Flag")),
-                    dcc.Dropdown(
-                        id = "flag",
-                        placeholder="...",
-                        optionHeight=50
-                    )],
-                    width = 3,
-                    id = "flag_div",
-                    align = "center",
-                    style = {'display':'none'}
-                )],
-                justify = "center"
-            ),
-            
-            html.Br(),
-            dbc.Row([
-                # Note
-                dbc.Col(
-                    dbc.Row(
-                        dbc.Col(
-                            [dbc.Label(html.H2("Note")),
-                            html.Br(),
-                            dcc.Textarea(
-                                placeholder="...", 
-                                id = "note",
-                                style={'width': '75%'}),
-                            ],
-                        ),
-                        justify='center',
-                        style = {'display':'block'}
-                    ),
-                    width = 6,
-                    id = "note_div",
-                    align = "center",
-                    style = {'display':'none'}
-                ),
-                # Datetime and timezone
-                dbc.Col([
-                    dbc.Row(
-                        dbc.Col([
-                            dbc.Label(html.H2([
-                                "Datetime",
-                                html.Span('*',style={"color": "red","font-weight": "bold"})
-                            ])),
-                            dbc.Input(
-                                value = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                placeholder="...",
-                                id = "startdt",
-                                type="datetime-local",
-                                step="1"
-                            )],
-                        ),
-                        id ="date_div",
-                        justify = "center",
-                        style = {'display':'none','width':'75%'}
-                    ),
-                    dbc.Row([
-                        dbc.Col([
-                            dcc.Dropdown(
-                                options = ["UTC","EST","EDT"],
-                                value = "EST",
-                                id = "timezone",
-                                placeholder="Timezone",
-                                optionHeight=50
-                            )],
-                            width = 3
-                        )],
-                        id = "tz_div",
-                        justify = "center",
-                        style={'display':'none','width':'75%'}
-                    )],
-                    width = 6,
-                    align = "center"
-                )],
-                
-                justify = "center"
-            ),
-            
-            html.Br(),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Button(
-                        "Submit",
-                        id = "submit_button",
-                        color="info", 
-                        disabled=True),
-                    html.Br()],
-                    width = 4
-                )],
-                id = "buttons_div",
-                justify = "center",
-                className="d-grid gap-2"
-            ),
-            dbc.Row([
-                dbc.Col([
-                    html.Br(),
-                    dcc.Loading(
-                        id="loading",
-                        type="default",
-                        children=html.Div(id="submit_button_loading")
-                    )],
-                    width = 8
-                )],
-                id = "loading_div",
-                justify = "center"
-            ),
-            dbc.Tooltip(
-                "Required input missing",
-                id="submit_tooltip",
-                target="buttons_div",
-                placement="bottom"
-            ),
-            
-            
-            html.Br(),
-            dbc.Row([
-                dbc.Col(id = "logtable_div",
-                        width = 9,
-                        align = "center")
-                ],
-                justify = "center"
-            ),
-            
-            
-            
-            html.Div(id='logs'),
-            dcc.Interval(id='log_updater',interval = 5000)
-            
-        ])
+            justify="center",
+            className="buttons_div"
+        ),
+        dbc.Modal(
+            id="new-entry-modal",
+            is_open=False,
+            size="lg",
+            children=[
+                dbc.ModalHeader("Enter New Entries"),
+                dbc.ModalBody([
+                    html.Div(id="entry-container", children=[]),
+                    html.Div([
+                        dbc.Spinner(color="primary", type="grow"),
+                        html.Span(" Waiting for user input...", className="ms-2")
+                    ], className="text-center text-muted my-3")
+                ]),
+                dbc.ModalFooter(
+                    dbc.Button("Done", id="done-button", color="success")
+                )
+            ]
+        ),
+        dcc.Store(id="entry-store", data=[]),  # Keep track of all entries
+        dcc.Store(id="editing", data=False),   # Whether we are editing or not
+        dcc.Store(id="entry-counter", data=1),
+        html.Div(id='logs'),
+        dcc.Interval(id='log_updater', interval=5000)
+    ]
 
-#%% Select project callback
+
+# %% Modal for "new" button click
 @app.callback(
-    Output('site_div', 'style'),
-    Output('site','options'),
-    Output('logtable_div','children'),
-    Input('project','value'),
-    Input('submit_button','disabled'),
-    State("breakpoints", "widthBreakpoint"))
-def project_update(project,temp_var,breakpoint_name: str):
-    
-    
-    global logs
-    
-    # sites for selected project
-    sites_filtered = np.sort(sites.loc[sites["projectid"]==project]['short_description']).tolist()
-    
-    # show row and update
-    if project == "" or project is None:
-        return [{'display':'none'},sites_filtered,""]
-    elif breakpoint_name =="sm":
-        return [{'display':'flex'},sites_filtered,""]
-    else:
-        
-        # Find database corresponding to selected project
-        database = databases['database'].loc[databases['label']==project].tolist()[0]  
-        
-        sql_engine_string=sql_engine_string_generator('DATAHUB_PSQL_SERVER',database,'DATAHUB_PSQL_EDITUSER','DATAHUB_PSQL_EDITPASSWORD',local)
-        sql_engine=create_engine(sql_engine_string)
-        
-        logs = pd.read_sql_query(
-            "select * from logs", 
-            sql_engine)
-        sql_engine.dispose()
-        
-        # Format logs table
-        logs_formatted = logs.loc[:,['loguser','datetime','startdt',
-                                     'station','instrument','field_flag',
-                                     'field_comment']]
-        logs_formatted.columns = ['User','Submission Datetime',
-                                  'Log Datetime','Station','Instrument',
-                                  'Flag','Note']
-        
-        # Sort and format dt
-        logs_formatted = logs_formatted.sort_values(by='Submission Datetime', ascending=False)    
-        logs_formatted['Submission Datetime'] = logs_formatted['Submission Datetime'].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
-        logs_formatted['Log Datetime'] = logs_formatted['Log Datetime'].dt.strftime('%Y-%m-%d %H:%M:%S %Z')
-        
-        
-        return_logs_table = [dash_table.DataTable(
-            style_header={
-                'backgroundColor': 'rgb(30, 30, 30)',
-                'color': 'white'
-            },
-            style_data={
-                'whiteSpace': 'normal',
-                'height': 'auto',
-                'minWidth': '50px', 'width': '100px', 'maxWidth': '400px',
-                'backgroundColor': 'rgb(50, 50, 50)',
-                'color': 'white'
-            },
-            style_cell={'textAlign': 'center'},
-            style_filter={
-                'backgroundColor': 'rgb(50, 50, 50)',
-                'color': 'white'
-            },  
-            filter_action="native",
-            filter_options={"placeholder_text": "Filter..."},
-            sort_action="native",
-            sort_mode="single",
-            page_size=10,
-            data = logs_formatted.to_dict('records'),
-            columns=[{"name": i, "id": i} for i in logs_formatted.columns]
-        )]
-        return [{'display':'block'},sites_filtered,return_logs_table]
-
-
-#%% Site selection callback
-@app.callback(
-    Output('instrument_div', 'style'),
-    Output('flagcat_div', 'style'),
-    Output('flag_div', 'style'),
-    Output('note_div', 'style'),
-    Output('date_div', 'style'),
-    Output('tz_div', 'style'),
-    Output('instrument','options'),
-    Input('site','value'),
-    State('project','value'),
-    State("breakpoints", "widthBreakpoint"))
-def site_update(site,project,breakpoint_name: str):
-    
-    # show all remaining rows
-    if site == "" or site is None:
-        d = {'display':'none'}
-        return_list = [d]*6
-        return_list.append([''])
-    else:
-        if breakpoint_name =="sm":
-            d ={'display':'flex'}
-            return_list = [d]*6
-        else:
-            d ={'display':'block'}
-            return_list = [d]*4
-            return_list.append({'display':'block','width':'75%'}) # datetime div
-            return_list.append({'display':'flex','width':'75%'}) # tz div
-        
-        # instruments for selected site
-        siteid = sites[(sites['short_description']==site) &
-                               (sites['projectid']==project)]['siteid'].tolist()[0]
-        
-        instruments_filtered = np.sort(instruments.loc[
-                (instruments["projectid"]==project) &
-                (instruments["currentlocation"] == siteid)]['instrumentnamelabel']).tolist()
-        
-        return_list.append(instruments_filtered)
-        
-    return return_list
-        
-
-#%% Flag category selection callback 
-@app.callback(
-    Output('flag','options'),
-    Input('flag_cat','value'))
-def flag_update(flag_cat):
-    
-    # flags for selected category
-    if flag_cat == "" or flag_cat is None:
-        flags = [""]
-    else:
-        flags = np.sort(flag_table.loc[flag_table["category"]==flag_cat]['description']).tolist()
-    return flags
-
-
-
-#%% Show submit button when all required inputs are put in
-@app.callback(
-    Output('submit_button','disabled'),
-    Output('submit_tooltip','children'),
-    Input('user','value'),
-    Input('project','value'),
-    Input('site','value'),
-    Input('instrument','value'),
-    Input('startdt','value'),
-    Input('timezone','value'),
-    Input('flag_cat','value'),
-    Input('flag','value'),
-    Input('note','value'))
-    
-def button_update(user,project,site,instrument,startdt,timezone,flag_cat,flag,note):
-    
-    if any([user is None, 
-            project is None,
-            site is None,
-            instrument is None,
-            startdt is None,
-            timezone is None]):
-        return [True,"Required input missing"]
-    else:
-        return [False,"Ready to submit"]
-
-
-#%% Submit to database
-@app.callback(
-    Output('submit_button_loading','children'),
-    Output('submit_button_loading','style'),
-    Output('submit_button','disabled',allow_duplicate=True),
-    Output('submit_tooltip','children',allow_duplicate=True),
-    Input('submit_button', 'n_clicks'),
-    State('site','value'),
-    State('instrument','value'),
-    State('project','value'),
-    State('startdt','value'),
-    State('timezone','value'),
-    State('user','value'),
-    State('note','value'),
-    State('flag','value'),
+    Output("new-entry-modal", "is_open"),
+    Output("entry-container", "children", allow_duplicate=True),
+    Output("entry-store", "data", allow_duplicate=True),
+    Output("editing", "data", allow_duplicate=True),
+    Output("entry-counter", "data"),
+    Input("btn-new", "n_clicks"),
+    Input("done-button", "n_clicks"),
+    State("new-entry-modal", "is_open"),
     prevent_initial_call=True
 )
+def toggle_modal(new_clicks, done_clicks, is_open):
+    triggered_id = ctx.triggered_id
+    if triggered_id == "btn-new":
+        return True, [create_text_row(1)], [{"index": 1, "value": "", "editable": True, "radio": None}], False, 2
+    elif triggered_id == "done-button":
+        return False, [], [], False, 1
+    return is_open, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
-def upload_log(n,site,instrument,project,startdt,timezone,userinput,note,flag):
-    # Find database corresponding to selected project
-    database = databases['database'].loc[databases['label']==project].tolist()[0]  
-    
-    sql_engine_string=sql_engine_string_generator('DATAHUB_PSQL_SERVER',database,'DATAHUB_PSQL_EDITUSER','DATAHUB_PSQL_EDITPASSWORD',local)
-    sql_engine=create_engine(sql_engine_string)
-    
-    # create db connection
-    with sql_engine.connect() as conn:
-    
-        # parse all variables going to db
-        siteid = sites[(sites['short_description']==site) &
-                       (sites['projectid']==project)]['siteid'].tolist()[0]
-        submitdt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        startdt = startdt.replace("T", " ")
-        if isinstance(note,list):
-            note = ','.join(note)
-            
-        if flag == "" or flag is None:
-            flag_shortcode = ""
-        else:
-            flag_shortcode = flag_table['flag_code'].loc[flag_table['description']==flag].tolist()[0]
-            
-        try:
-            user = users['usershort'].loc[users['piemail'].str.lower()==userinput.lower()].values[0]
-        except:
-            user = userinput
-                    
-        try:
-            # queries
-            tz_set_query = text("""SET TIME ZONE 'EST5EDT';""")
-           
-            InsertLog = text('''
-            INSERT INTO logs (station,datetime,loguser,logtype,startdt,enddt,field_comment,site_location,instrument,field_flag)
-            VALUES ('{0}', '{1}', '{2}','{3}',NULLIF('{4}','')::timestamp,NULLIF('{5}','')::timestamp,'{6}',NULLIF('{7}',''),NULLIF('{8}',''),NULLIF('{9}',''))
-            ON CONFLICT DO NOTHING;
-            '''.format(siteid,submitdt,
-            user,'FIELD', 
-            startdt,'', 
-            note.replace("'","''"),'', 
-            instrument,flag_shortcode))
-            
-            conn.execute(tz_set_query)
-            conn.execute(InsertLog)
-            conn.commit()
-            
-            return ["Upload to database successful!",
-                    {"color": "green","font-weight": "bold","font-size": "large"},
-                    True,
-                    "Submission complete!"]
-        except Exception as e:
-            
-            logging.exception(e)
-            
-            return ["Upload to database not successful!",
-                    {"color": "red","font-weight": "bold","font-size": "large"},
-                    False,
-                    "Ready to submit"]
-        
-    
-#%% Callback to update user field based on page headers
+
+# %% Create text boxes dynamically in "New" modal
+@app.callback(
+    Output("entry-container", "children", allow_duplicate=True),
+    Output("entry-store", "data", allow_duplicate=True),
+    Output("entry-counter", "data", allow_duplicate=True),
+    Input({'type': 'entry-input', 'index': dash.ALL}, 'value'),
+    State({'type': 'entry-input', 'index': dash.ALL}, 'id'),
+    State("entry-store", "data"),
+    State("entry-counter", "data"),
+    prevent_initial_call=True
+)
+def handle_input_length(values, ids, entry_data, counter):
+    new_components = []
+    new_data = []
+
+    for i, (val, id_obj) in enumerate(zip(values, ids)):
+        idx = id_obj['index']
+        radio_val = entry_data[i].get("radio", None)
+        new_data.append({"index": idx, "value": val, "editable": True, "radio": radio_val})
+        new_components.append(create_text_row(idx, value=val, editable=True, selection=radio_val))
+
+    if len(values) > 0 and len(values[-1]) == 8 and entry_data[-1]['value'] != values[-1]:
+        new_data.append({"index": counter, "value": "", "editable": True, "radio": None})
+        new_components.append(create_text_row(counter, editable=True))
+        counter += 1
+
+    return new_components, new_data, counter
+
+# %% Store radio button input values in entry-store
+@app.callback(
+    Output("entry-store", "data"),
+    Input({'type': 'entry-radio', 'index': dash.ALL}, 'value'),
+    State({'type': 'entry-radio', 'index': dash.ALL}, 'id'),
+    State("entry-store", "data"),
+    prevent_initial_call=True
+)
+def update_radio_values(values, ids, entry_data):
+    for i, val in enumerate(values):
+        entry_data[i]['radio'] = val
+    return entry_data
+
+
+# %% Grab user email from headers
 @app.callback(
     Output('user', 'value'),
     Output('user', 'disabled'),
-    Output('user_div','style'),
-    Input('user', 'id')  # This triggers the callback on page load
+    Output('user_div', 'style'),
+    Input('user', 'id')  
 )
 def display_headers(_):
     if request_headers.get('Dh-User'):
-        return [request_headers.get('Dh-User'),True,{'display':'none'}]
+        return [request_headers.get('Dh-User'), True, {'display': 'none'}]
     else:
-        return [None,False,{'display':'flex'}]
+        return [None, False, {'display': 'block'}]
 
-
-
-#%% Server route to automatically capture headers when the page is first loaded
 @app.server.before_request
 def before_request():
     global request_headers
     request_headers = dict(request.headers)  # Capture headers before processing any request
 
-#%% Log print statements
+
+# %% Update log
 @app.callback(
     Output('logs', 'children'),
     Input('log_updater', 'n_intervals')
 )
 def update_log(n):
-    with open("logs/log.log","r") as log:
+    with open("logs/log.log", "r") as log:
         return log.read()
 
+# %% javascript used to autofocus newly created textboxes in "New" modal
+app.clientside_callback(
+    """
+    function(children) {
+        window.requestAnimationFrame(() => {
+            setTimeout(() => {
+                const container = document.getElementById('entry-container');
+                if (container) {
+                    const inputs = container.querySelectorAll('input[type="text"]');
+                    if (inputs.length > 0) {
+                        inputs[inputs.length - 1].focus();
+                    }
+                }
+            }, 100);
+        });
+        return children;
+    }
+    """,
+    Output("entry-container", "children"),
+    Input("entry-container", "children")
+)
+
+# %% Run app
 app.layout = serve_layout
 
 if not local:
     server = app.server
 else:
-    if __name__=='__main__':
-        app.run_server(debug=True,port=8080)
+    if __name__ == '__main__':
+        app.run(debug=True, port=8080)
+
