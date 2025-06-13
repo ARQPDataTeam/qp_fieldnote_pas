@@ -539,7 +539,7 @@ app.clientside_callback(
     prevent_initial_call=True
 )
 
-# NEW: Callback for the Upload Data button with duplicate checking
+# %% Callback for the Upload Data button with duplicate checking
 @app.callback(
     Output("edit-confirmation", "children", allow_duplicate=True), # Using edit-confirmation for feedback
     Input("btn-upload-data", "n_clicks"),
