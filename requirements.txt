@@ -12,3 +12,4 @@ azure-storage-blob
 azure-keyvault-secrets
 python-dotenv
 gunicorn
+dash_ag_grid
