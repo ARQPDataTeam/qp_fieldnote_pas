@@ -3,7 +3,7 @@ name: Build and Push Dash App Image to GHCR
 on:
   push:
     branches:
-      - sampler
+      - main
 
 jobs:
   build:
@@ -27,7 +27,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/arqpdatateam/qp_fieldnote:latest
+          tags: ghcr.io/arqpdatateam/qp_fieldnote_pas:latest
 
       - name: Logout of GitHub Container Registry
         run: docker logout ghcr.io
