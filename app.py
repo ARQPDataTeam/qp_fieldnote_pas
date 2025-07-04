@@ -4,7 +4,7 @@ from dash import html, Input, Output, State, ctx, dcc, Dash,dash_table
 import dash_bootstrap_components as dbc
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, MetaData
 from credentials import sql_engine_string_generator
 from flask import request
 from datetime import datetime
@@ -14,6 +14,7 @@ from dash_breakpoints import WindowBreakpoints
 import socket
 import dash.exceptions
 import dash_ag_grid as dag
+import re
 
 # Local dev boolean
 computer = socket.gethostname()
@@ -54,10 +55,10 @@ else:
 request_headers = {}
 
 # Get connection string
-dcp_sql_engine_string = sql_engine_string_generator('DATAHUB_PSQL_SERVER', 'dcp', 'DATAHUB_PSQL_EDITUSER', 'DATAHUB_PSQL_EDITPASSWORD', local)
+dcp_sql_engine_string = sql_engine_string_generator('DATAHUB_PSQL_SERVER', 'dcp', 'DATAHUB_PSQL_USER', 'DATAHUB_PSQL_PASSWORD', local)
 dcp_sql_engine = create_engine(dcp_sql_engine_string)
 
-mercury_sql_engine_string = sql_engine_string_generator('DATAHUB_PSQL_SERVER', 'mercury_tracking', 'DATAHUB_PSQL_EDITUSER', 'DATAHUB_PSQL_EDITPASSWORD', local)
+mercury_sql_engine_string = sql_engine_string_generator('DATAHUB_PSQL_SERVER', 'mercury_passive', 'DATAHUB_PSQL_USER', 'DATAHUB_PSQL_PASSWORD', local)
 mercury_sql_engine = create_engine(mercury_sql_engine_string)
 
 
@@ -79,7 +80,6 @@ def serve_layout():
     global sites
 
     # Pull required data from tables
-    databases = pd.read_sql_table("databases", dcp_sql_engine)
     users = pd.read_sql_table("users", dcp_sql_engine)
     sites = pd.read_sql_query("select * from stations", dcp_sql_engine)
 
@@ -105,12 +105,13 @@ def change_layout(breakpoint_name: str, window_width: int):
     return [
         dbc.Row([
             html.H1('QP FieldNote - Passive Mercury'),
-            html.Div([
-                html.Span('Required fields indicated by '),
-                html.Span('*', style={"color": "red", "font-weight": "bold"})
-            ]),
             html.Span('v. ' + version),
             html.Br(),
+            html.Br(),
+            html.Div([
+                html.H3('Choose Sample Type:'),
+                #html.Span('*', style={"color": "red", "font-weight": "bold"})
+            ])
         ]),
         dbc.Row([
             dbc.Col(
@@ -134,7 +135,7 @@ def change_layout(breakpoint_name: str, window_width: int):
                 align="center",
             )
         ], justify="center"),
-        html.Br(),
+        #html.Br(),
         dbc.Row(
             dbc.Col(
                 html.Div([
@@ -158,11 +159,11 @@ def change_layout(breakpoint_name: str, window_width: int):
             is_open=False,
             size="lg",
             children=[
-                dbc.ModalHeader("Enter New Entries"),
+                dbc.ModalHeader("Enter New Kit Information"),
                 dbc.ModalBody([
                     # Sampler IDs header
                     html.H5("Sampler IDs", className="mb-3 text-center"),
-                    html.Div(id="entry-container", children=[]), # This is where dynamic text boxes go
+                    html.Div(id="entry-container", children=[]),
                     # Kit ID section
                     dbc.Row(
                         dbc.Col([
@@ -186,7 +187,30 @@ def change_layout(breakpoint_name: str, window_width: int):
                     ], className="text-center my-3"),
                 ]),
                 dbc.ModalFooter(
-                    dbc.Button("Done", id="done-button", color="success"),
+                    dbc.Button("Done", id="new-done-button", color="success"),
+                    className="w-100 d-flex justify-content-center"
+                )
+            ]
+        ),
+        dbc.Modal(
+            id="update-kitid-modal",
+            is_open=False,
+            size="md",
+            children=[
+                dbc.ModalHeader("Update Kit Entry"),
+                dbc.ModalBody([
+                    html.H5("Enter Kit ID", className="mb-2 text-center"),
+                    dbc.Input(
+                        id="update-kitid-input",
+                        type="text",
+                        placeholder="ECXXXX",
+                        className="text-center",
+                        style={'width': '150px', 'margin': '0 auto'}
+                    ),
+                    html.Div(id="update-kitid-feedback", className="mt-3 text-center")
+                ]),
+                dbc.ModalFooter(
+                    dbc.Button("Done", id="update-done-button", color="success"),
                     className="w-100 d-flex justify-content-center"
                 )
             ]
@@ -195,16 +219,15 @@ def change_layout(breakpoint_name: str, window_width: int):
         dcc.Store(id="editing", data=False),
         dcc.Store(id="entry-counter", data=1),
         dcc.Interval(id='log_updater', interval=5000),
-        # Reverted: Upload Data Button text back to "Upload Data to Database"
         html.Div(
             dbc.Button(
-                "Upload Data to Database", # Reverted text here
+                "Upload Data to Database",
                 id="btn-upload-data",
                 color="success",
-                className="mt-4", # Add margin-top for spacing
-                style={'display': 'none'} # Initially hidden. Controlled by build_database_df now.
+                className="mt-4",
+                style={'display': 'none'} 
             ),
-            className="d-flex justify-content-center" # Center the button
+            className="d-flex justify-content-center" 
         )
     ]
 
@@ -217,7 +240,7 @@ def create_text_row(index: int, value="", editable=True, selection=None):
                 id={'type': 'entry-input', 'index': index},
                 type="text",
                 value=value,
-                placeholder="ECCCXXXX", # Placeholder for dynamic inputs
+                placeholder="ECCCXXXX",
                 disabled=not editable,
                 debounce=False,
                 className="mb-2 me-2"
@@ -247,7 +270,7 @@ def create_text_row(index: int, value="", editable=True, selection=None):
     Output("editing", "data", allow_duplicate=True),
     Output("entry-counter", "data"),
     Input("btn-new", "n_clicks"),
-    Input("done-button", "n_clicks"),
+    Input("new-done-button", "n_clicks"),
     State("new-entry-modal", "is_open"),
     prevent_initial_call=True
 )
@@ -255,7 +278,7 @@ def toggle_modal(new_clicks, done_clicks, is_open):
     triggered_id = ctx.triggered_id
     if triggered_id == "btn-new":
         return True, [create_text_row(1)], [{"index": 1, "value": "", "editable": True, "radio": None}], False, 2
-    elif triggered_id == "done-button":
+    elif triggered_id == "new-done-button":
         return False, [], [], False, 1
     return is_open, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -336,7 +359,7 @@ def delete_row(delete_clicks, entry_data):
 @app.callback(
     Output("database-table-div", "children"),
     Output("btn-upload-data", "style"),
-    Input("done-button", "n_clicks"),
+    Input("new-done-button", "n_clicks"),
     State("static-kit-id-input", "value"),
     State("entry-store", "data"),
     prevent_initial_call=True
@@ -508,7 +531,7 @@ def display_headers(_):
     if request_headers.get('Dh-User'):
         return [request.headers.get('Dh-User'), True, {'display': 'none'}]
     else:
-        return [None, False, {'display': 'block'}]
+        return [None, False, {'display': 'none'}]
 
 @app.server.before_request
 def before_request():
@@ -539,14 +562,14 @@ app.clientside_callback(
     prevent_initial_call=True
 )
 
-# %% Callback for the Upload Data button with duplicate checking
+# %% Callback for the Upload Data button with duplicates checking
 @app.callback(
     Output("edit-confirmation", "children", allow_duplicate=True), # Using edit-confirmation for feedback
     Input("btn-upload-data", "n_clicks"),
     prevent_initial_call=True
 )
 def upload_data_to_database(n_clicks):
-    global database_df # Declare global to access the DataFrame
+    global database_df 
 
     if n_clicks is None:
         raise dash.exceptions.PreventUpdate
@@ -606,6 +629,51 @@ def upload_data_to_database(n_clicks):
 
     return html.Div(feedback_messages)
 
+
+# %% Update button callback
+@app.callback(
+    Output("update-kitid-modal", "is_open"),
+    Input("btn-update", "n_clicks"),
+    Input("update-done-button", "n_clicks"),
+    State("update-kitid-modal", "is_open"),
+    prevent_initial_call=True
+)
+def toggle_update_modal(open_clicks, done_clicks, is_open):
+    triggered = ctx.triggered_id
+    if triggered == "btn-update":
+        return True
+    elif triggered == "update-done-button":
+        return False
+    return is_open
+
+# %% Update Done button callback
+@app.callback(
+    Output("update-kitid-feedback", "children"),
+    Output("update-kitid-feedback", "style"),
+    Output("update-kitid-modal", "is_open"),
+    Input("update-done-button", "n_clicks"),
+    State("update-kitid-input", "value"),
+    prevent_initial_call=True
+)
+def validate_and_process_kitid(n_clicks, kit_id):
+    if not kit_id:
+        return "Invalid Kit ID", {"color": "red"}, True
+
+    # Validate format: must match EC followed by 4+ digits
+    if not re.fullmatch(r"EC\d{4,}", kit_id.strip()):
+        return "Invalid Kit ID", {"color": "red"}, True
+
+    
+    
+
+
+    kit_exists = True  # <- replace this with your actual DB lookup
+
+    if not kit_exists:
+        return "Kit ID not found in database.", {"color": "red"}, True
+
+    # If valid and exists, close modal (or do more)
+    return "", {}, False  # Clear message and close modal
 
 # %% Run app
 app.layout = serve_layout
