@@ -24,7 +24,7 @@ else:
     local = False
 
 # Version number to display
-version = "1.1"
+version = "2.0"
 
 # Setup logger
 if not os.path.exists('logs'):
@@ -71,6 +71,48 @@ database_df = pd.DataFrame(columns=[
 
 # Define the placeholder for date/time columns
 DATE_TIME_PLACEHOLDER = "YYYY-MM-DD HH:MM:SS"
+
+# Table div
+global tablehtml
+tablehtml = html.Div(
+    dag.AgGrid(
+        id="database-table",
+        columnDefs=[
+            {"field": "sample_start", "headerName": "Sample Start", "editable": True,
+             "valueFormatter": {"function": f"params.value === '' || params.value === null ? '{DATE_TIME_PLACEHOLDER}' : params.value"},
+             "cellClassRules": {
+                 "ag-placeholder-text": "params.value === '' || params.value === null"
+             }},
+            {"field": "sample_end", "headerName": "Sample End", "editable": True,
+             "valueFormatter": {"function": f"params.value === '' || params.value === null ? '{DATE_TIME_PLACEHOLDER}' : params.value"},
+             "cellClassRules": {
+                 "ag-placeholder-text": "params.value === '' || params.value === null"
+             }},
+            {"field": "sampleid", "headerName": "Sample ID", "editable": False},
+            {"field": "kitid", "headerName": "Kit ID", "editable": True},
+            {"field": "samplerid", "headerName": "Sampler ID", "editable": True},
+            {"field": "siteid", "headerName": "Site ID", "editable": True},
+            {"field": "shipped_location", "headerName": "Shipped Location", "editable": True},
+            {"field": "shipped_date", "headerName": "Shipped Date", "editable": True, "cellEditor": "agDateStringCellEditor"},
+            {"field": "return_date", "headerName": "Return Date", "editable": True, "cellEditor": "agDateStringCellEditor"},
+            {"field": "sample_type", "headerName": "Sample Type", "editable": True, "cellEditor": "agSelectCellEditor", "cellEditorParams": {"values": ["Sample", "Blank"]}},
+            {"field": "note", "headerName": "Note", "editable": True}
+        ],
+        defaultColDef={"resizable": True, "sortable": True},
+        columnSize="sizeToFit",
+        dashGridOptions={"rowSelection":"single",
+                         "animateRows": True,
+                         "editable": True,
+                         "components": {}
+        },
+        className="ag-theme-alpine-dark",
+        style={"height": "400px", "width": "100%"}
+    ),
+    style={"padding": "0 40px"}
+)
+
+
+
 
 
 # %% Layout function, useful for having two UI options (e.g., mobile vs desktop)
@@ -152,7 +194,7 @@ def change_layout(breakpoint_name: str, window_width: int):
             className="buttons_div"
         ),
         html.Hr(),
-        html.Div(id="database-table-div"),
+        tablehtml,
         html.Div(id="edit-confirmation", style={"textAlign": "center", "color": "green", "marginTop": "10px"}),
         dbc.Modal(
             id="new-entry-modal",
@@ -171,7 +213,7 @@ def change_layout(breakpoint_name: str, window_width: int):
                             dbc.Input(
                                 id="static-kit-id-input",
                                 type="text",
-                                placeholder="ECXXXX", # Placeholder added
+                                placeholder="EC-XXXX", # Placeholder added
                                 className="text-center",
                                 style={'width': '150px', 'margin': '0 auto'}
                             )
@@ -187,8 +229,11 @@ def change_layout(breakpoint_name: str, window_width: int):
                     ], className="text-center my-3"),
                 ]),
                 dbc.ModalFooter(
-                    dbc.Button("Done", id="new-done-button", color="success"),
-                    className="w-100 d-flex justify-content-center"
+                    [
+                        dbc.Button("Done", id="new-done-button", color="success"),
+                        html.Div(id="new-kitid-feedback", className="mt-3 text-center")
+                    ],
+                    className="w-100 d-flex flex-column align-items-center"
                 )
             ]
         ),
@@ -203,7 +248,7 @@ def change_layout(breakpoint_name: str, window_width: int):
                     dbc.Input(
                         id="update-kitid-input",
                         type="text",
-                        placeholder="ECXXXX",
+                        placeholder="EC-XXXX",
                         className="text-center",
                         style={'width': '150px', 'margin': '0 auto'}
                     ),
@@ -218,6 +263,8 @@ def change_layout(breakpoint_name: str, window_width: int):
         dcc.Store(id="entry-store", data=[]),
         dcc.Store(id="editing", data=False),
         dcc.Store(id="entry-counter", data=1),
+        dcc.Store(id='database-store', data=[]),
+        dcc.Store(id="kitid-filtered-data", data=None),
         dcc.Interval(id='log_updater', interval=5000),
         html.Div(
             dbc.Button(
@@ -357,50 +404,45 @@ def delete_row(delete_clicks, entry_data):
 
 # %% "Done" button callback for new entries
 @app.callback(
-    Output("database-table-div", "children"),
-    Output("btn-upload-data", "style"),
+    Output("database-table", "rowData", allow_duplicate=True),
+    Output("btn-upload-data", "style", allow_duplicate=True),
+    Output("new-kitid-feedback", "children"),
+    Output("new-kitid-feedback", "style"),
+    Output("new-entry-modal", "is_open", allow_duplicate=True),
+    Output("entry-container", "children", allow_duplicate=True),
+    Output("entry-store", "data", allow_duplicate=True),
     Input("new-done-button", "n_clicks"),
     State("static-kit-id-input", "value"),
     State("entry-store", "data"),
+    State("entry-container", "children"),
     prevent_initial_call=True
 )
-def build_database_df(n_clicks, kit_id_value, entry_data):
+def validate_and_build_df(n_clicks, kit_id_value, entry_data, current_components):
     global database_df
-    if not entry_data:
-        # If no valid entries, return empty table div and hide button
-        database_df = pd.DataFrame(columns=[
-            'sample_start', 'sample_end', 'sampleid', 'kitid', 'samplerid',
-            'siteid', 'shipped_location', 'shipped_date', 'return_date',
-            'sample_type', 'note'
-        ])
-        return html.Div("No valid entries to display.", style={"color": "red"}), {'display': 'none'}
 
-    valid_entries = [
-        entry for entry in entry_data
-        if entry.get("value", "").strip() != ""
+    # Validate Kit ID
+    if not kit_id_value or not re.fullmatch(r"EC-\d{4}", kit_id_value.strip()):
+        return dash.no_update, dash.no_update, "Invalid Kit ID format. Expected EC-####.", {"color": "red"}, True, current_components, entry_data
+
+    # Validate Sample IDs
+    invalid_samples = [
+        entry["value"] for entry in entry_data
+        if entry.get("value") and not re.fullmatch(r"ECCC\d{4}", entry["value"].strip())
     ]
+    if invalid_samples:
+        return dash.no_update, dash.no_update, f"Invalid Sample ID(s): {', '.join(invalid_samples)}. Expected ECCC####.", {"color": "red"}, True, current_components, entry_data
 
-    if not valid_entries:
-        # If no valid entries (after filtering), hide button
-        database_df = pd.DataFrame(columns=[
-            'sample_start', 'sample_end', 'sampleid', 'kitid', 'samplerid',
-            'siteid', 'shipped_location', 'shipped_date', 'return_date',
-            'sample_type', 'note'
-        ])
-        return html.Div("No valid entries to display.", style={"color": "red"}), {'display': 'none'}
-
-
+    # Proceed with building the DataFrame
+    valid_entries = [entry for entry in entry_data if entry.get("value", "").strip() != ""]
     records = []
     for entry in valid_entries:
         sampler_id = entry.get("value", "")
-        # create sampleid here for initial table build
         generated_sampleid = f"{kit_id_value}_{sampler_id}" if kit_id_value and sampler_id else None
-
         records.append({
             'sample_start': None,
-            'sample_end': None,   
+            'sample_end': None,
             'sampleid': generated_sampleid,
-            'kitid': kit_id_value if kit_id_value else None,
+            'kitid': kit_id_value,
             'samplerid': sampler_id,
             'siteid': None,
             'shipped_location': None,
@@ -411,47 +453,7 @@ def build_database_df(n_clicks, kit_id_value, entry_data):
         })
 
     database_df = pd.DataFrame(records)
-
-    # If valid entries exist, show the button
-    button_style = {'display': 'block', 'margin-top': '20px'}
-
-    return html.Div(
-        dag.AgGrid(
-            id="database-table",
-            columnDefs=[
-                {"field": "sample_start", "headerName": "Sample Start", "editable": True,
-                 "valueFormatter": {"function": f"params.value === '' || params.value === null ? '{DATE_TIME_PLACEHOLDER}' : params.value"},
-                 "cellClassRules": {
-                     "ag-placeholder-text": "params.value === '' || params.value === null"
-                 }},
-                {"field": "sample_end", "headerName": "Sample End", "editable": True,
-                 "valueFormatter": {"function": f"params.value === '' || params.value === null ? '{DATE_TIME_PLACEHOLDER}' : params.value"},
-                 "cellClassRules": {
-                     "ag-placeholder-text": "params.value === '' || params.value === null"
-                 }},
-                {"field": "sampleid", "headerName": "Sample ID", "editable": False},
-                {"field": "kitid", "headerName": "Kit ID", "editable": True},
-                {"field": "samplerid", "headerName": "Sampler ID", "editable": True},
-                {"field": "siteid", "headerName": "Site ID", "editable": True},
-                {"field": "shipped_location", "headerName": "Shipped Location", "editable": True},
-                {"field": "shipped_date", "headerName": "Shipped Date", "editable": True, "cellEditor": "agDateStringCellEditor"},
-                {"field": "return_date", "headerName": "Return Date", "editable": True, "cellEditor": "agDateStringCellEditor"},
-                {"field": "sample_type", "headerName": "Sample Type", "editable": True, "cellEditor": "agSelectCellEditor", "cellEditorParams": {"values": ["Sample", "Blank"]}},
-                {"field": "note", "headerName": "Note", "editable": True}
-            ],
-            rowData=database_df.to_dict("records"),
-            defaultColDef={"resizable": True, "sortable": True},
-            columnSize="sizeToFit",
-            dashGridOptions={"rowSelection":"single",
-                             "animateRows": True,
-                             "editable": True,
-                             "components": {}
-            },
-            className="ag-theme-alpine-dark",
-            style={"height": "400px", "width": "100%"}
-        ),
-        style={"padding": "0 40px"}
-    ), button_style # Return the style for the button
+    return database_df.to_dict("records"), {'display': 'block', 'margin-top': '20px'}, "", {"color": "green"}, False, current_components, entry_data
 
 
 # %% Update df whenever user edits the datatable
@@ -468,7 +470,7 @@ def sync_table_edits(cellValueChanged, current_grid_data):
         raise dash.exceptions.PreventUpdate
 
     changed_col = cellValueChanged[0]['colId']
-    changed_row_index = cellValueChanged[0]['rowIndex']
+    changed_row_index = cellValueChanged[0]['rowIndex']+1
     new_value_raw = cellValueChanged[0]['value']
     old_value = cellValueChanged[0]['oldValue']
 
@@ -483,19 +485,19 @@ def sync_table_edits(cellValueChanged, current_grid_data):
             try:
                 datetime.strptime(str(new_value_raw), "%Y-%m-%d %H:%M:%S")
                 updated_grid_data[changed_row_index][changed_col] = new_value_raw
-                feedback_message = f"Changes saved! Column '{changed_col}' at Row {changed_row_index}, changed from '{old_value}' to '{new_value_raw}'. ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                feedback_message = f"Column '{changed_col}' at Row {changed_row_index}, changed from '{old_value}' to '{new_value_raw}'."
                 feedback_style = {"color": "green"}
             except ValueError:
                 updated_grid_data[changed_row_index][changed_col] = old_value if old_value is not None else ""
-                feedback_message = f"Error: Invalid date/time format for '{changed_col}' at Row {changed_row_index}. Expected '{DATE_TIME_PLACEHOLDER}'. Value reverted to '{old_value if old_value is not None else ''}'. ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                feedback_message = f"Error: Invalid date/time format for '{changed_col}' at Row {changed_row_index}. Expected '{DATE_TIME_PLACEHOLDER}'. Value reverted to '{old_value if old_value is not None else ''}'."
                 feedback_style = {"color": "red"}
         else:
             updated_grid_data[changed_row_index][changed_col] = "" # Keep as empty string if user clears it in UI
-            feedback_message = f"Changes saved! Column '{changed_col}' at Row {changed_row_index}, value cleared. ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+            feedback_message = f"Column '{changed_col}' at Row {changed_row_index}, value cleared."
             feedback_style = {"color": "green"}
     else:
         updated_grid_data[changed_row_index][changed_col] = new_value_raw
-        feedback_message = f"Changes saved! Column '{changed_col}' at Row {changed_row_index}, changed from '{old_value}' to '{new_value_raw}'. ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+        feedback_message = f"Column '{changed_col}' at Row {changed_row_index}, changed from '{old_value}' to '{new_value_raw}'."
         feedback_style = {"color": "green"}
 
     # After updating the changed cell, check if sampleid needs to be updated
@@ -619,11 +621,11 @@ def upload_data_to_database(n_clicks):
         # Proceed with upload for unique entries
         df_unique_to_upload.to_sql('pas_tracking', mercury_sql_engine, if_exists='append', index=False)
         
-        success_message = f"Successfully uploaded {len(df_unique_to_upload)} new entries to 'pas_tracking' table! ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+        success_message = f"Successfully uploaded {len(df_unique_to_upload)} new entries to 'pas_tracking' table!"
         feedback_messages.append(html.Div(success_message, style={"color": "green", "marginTop": "10px"}))
 
     except Exception as e:
-        error_message = f"Error uploading data: {e}. Please check logs for details. ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+        error_message = f"Error uploading data: {e}. Please check logs for details."
         feedback_messages.append(html.Div(error_message, style={"color": "red", "marginTop": "10px"}))
         logging.error(f"Database upload error: {e}")
 
@@ -632,48 +634,67 @@ def upload_data_to_database(n_clicks):
 
 # %% Update button callback
 @app.callback(
-    Output("update-kitid-modal", "is_open"),
+    Output("update-kitid-modal", "is_open",allow_duplicate=True),
+    Output("database-store", "data"),
     Input("btn-update", "n_clicks"),
     Input("update-done-button", "n_clicks"),
     State("update-kitid-modal", "is_open"),
+    State("database-store", "data"),
     prevent_initial_call=True
 )
-def toggle_update_modal(open_clicks, done_clicks, is_open):
+def toggle_update_modal(open_clicks, done_clicks, is_open,db_tracking_data):
+
     triggered = ctx.triggered_id
     if triggered == "btn-update":
-        return True
+        # Query the pas_tracking table and store in global variable
+        try:
+            db_tracking_data = pd.read_sql_query("SELECT * FROM pas_tracking", mercury_sql_engine)
+        except Exception as e:
+            logging.error(f"Error loading pas_tracking table: {e}")
+            db_tracking_data = pd.DataFrame().to_dict("records")
+
+        return True,db_tracking_data.to_dict("records")  # open modal
     elif triggered == "update-done-button":
-        return False
+        return False,db_tracking_data
+        # close modal
+
     return is_open
 
 # %% Update Done button callback
 @app.callback(
     Output("update-kitid-feedback", "children"),
     Output("update-kitid-feedback", "style"),
-    Output("update-kitid-modal", "is_open"),
+    Output("update-kitid-modal", "is_open", allow_duplicate=True),
+    Output("database-table", "rowData", allow_duplicate=True),
+    Output("kitid-filtered-data", "data"),
+    Output("btn-upload-data", "style", allow_duplicate=True),
     Input("update-done-button", "n_clicks"),
     State("update-kitid-input", "value"),
+    State("database-store", "data"),
     prevent_initial_call=True
 )
-def validate_and_process_kitid(n_clicks, kit_id):
+def validate_and_display_kitid(n_clicks, kit_id,db_tracking_data):
+    
+    
     if not kit_id:
-        return "Invalid Kit ID", {"color": "red"}, True
+        return "Invalid Kit ID", {"color": "red"}, True, dash.no_update, dash.no_update, dash.no_update
 
-    # Validate format: must match EC followed by 4+ digits
-    if not re.fullmatch(r"EC\d{4,}", kit_id.strip()):
-        return "Invalid Kit ID", {"color": "red"}, True
+    if not re.fullmatch(r"EC-\d{4}", kit_id.strip()):
+        return "Invalid Kit ID", {"color": "red"}, True, dash.no_update, dash.no_update, dash.no_update
 
+    # Filter the loaded tracking data for the entered Kit ID
+    db_tracking_data = pd.DataFrame(db_tracking_data)
+    filtered_df = db_tracking_data[db_tracking_data['kitid'] == kit_id].copy()
+
+    if filtered_df.empty:
+        return "No entries found for this Kit ID.", {"color": "orange"}, True, dash.no_update, dash.no_update, dash.no_update
     
-    
+    # Update global dataframe
+    global database_df
+    database_df = filtered_df
 
+    return "", {}, False, database_df.to_dict("records"), filtered_df.to_dict("records"),{"display": "block", "margin-top": "20px"}
 
-    kit_exists = True  # <- replace this with your actual DB lookup
-
-    if not kit_exists:
-        return "Kit ID not found in database.", {"color": "red"}, True
-
-    # If valid and exists, close modal (or do more)
-    return "", {}, False  # Clear message and close modal
 
 # %% Run app
 app.layout = serve_layout
