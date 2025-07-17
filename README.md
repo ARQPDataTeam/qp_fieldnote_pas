@@ -1,17 +1,7 @@
 # QP FieldNote - Passive Mercury Tracking
 
-This Dash application is used for entering, editing, and managing passive mercury sampling kit data before uploading it to the database. It supports new sample entry, updating existing entries, validating inputs, and confirming overwrites for duplicates.
+This Dash application is used for entering, editing, and managing passive mercury sampling tracking information before uploading it to a database.
 
-## Features
-
-- Add new kits and sampler entries
-- Automatically generate sample IDs from Kit ID and Sampler ID
-- Validate Kit ID and Sampler ID formats
-- Update existing kits by Kit ID
-- Edit dates, locations, sample types, and notes
-- Upload data with duplicate detection and overwrite confirmation
-- Visual feedback on edit and upload actions
-- Loading spinner when pulling data from the database
 
 ## Using the App
 
@@ -54,37 +44,11 @@ This Dash application is used for entering, editing, and managing passive mercur
     - Clicking **Cancel** will skip the upload.
 - A confirmation message appears below the table after upload.
 
-### Loading Indicator
-
-- When you click **Update**, a loading bar appears while the app queries the database.
-- The loading spinner disappears once data is fetched and the modal appears.
-
 ## Data Validation
 
 - Kit ID must match: `EC-####`
 - Sampler ID must match: `ECCC####`
-- Dates must be in `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS`
-- Blank values in date fields will be stored as `NULL`
-
-## Data Table Columns
-
-- `sample_start` — editable (datetime)
-- `sample_end` — editable (datetime)
-- `sampleid` — auto-generated, not editable
-- `kitid` — editable (updates sampleid)
-- `samplerid` — editable (updates sampleid)
-- `siteid` — editable
-- `shipped_location` — editable
-- `shipped_date` — editable (datetime)
-- `return_date` — editable (datetime)
-- `sample_type` — editable ("Sample" or "Blank")
-- `note` — editable
-
-## Feedback and Logging
-
-- Visual feedback is shown after each edit
-- Upload status and errors are displayed inline
-- Errors are also written to `logs/log.log`
+- Datetimes must be in `YYYY-MM-DD HH:MM:SS`
 
 ## Resetting Input Fields
 
