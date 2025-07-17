@@ -4,7 +4,7 @@ from dash import html, Input, Output, State, ctx, dcc, Dash,dash_table
 import dash_bootstrap_components as dbc
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import create_engine, MetaData, text
 from credentials import sql_engine_string_generator
 from flask import request
 from datetime import datetime
@@ -193,6 +193,11 @@ def change_layout(breakpoint_name: str, window_width: int):
             justify="center",
             className="buttons_div"
         ),
+        dcc.Loading(
+            id="db-loading-wrapper",
+            type="default",  # You can also use "circle" or "dot"
+            children=html.Div(id="db-loading-output", style={"display": "inline-block"})
+        ),
         html.Hr(),
         tablehtml,
         html.Div(id="edit-confirmation", style={"textAlign": "center", "color": "green", "marginTop": "10px"}),
@@ -275,7 +280,21 @@ def change_layout(breakpoint_name: str, window_width: int):
                 style={'display': 'none'} 
             ),
             className="d-flex justify-content-center" 
-        )
+        ),
+        dbc.Modal(
+            id="overwrite-confirm-modal",
+            is_open=False,
+            children=[
+                dbc.ModalHeader("Overwrite Confirmation"),
+                dbc.ModalBody("Some sample IDs already exist in the database. Do you want to overwrite them?"),
+                dbc.ModalFooter([
+                    dbc.Button("Yes, Overwrite", id="confirm-overwrite", color="danger", className="me-2"),
+                    dbc.Button("Cancel", id="cancel-overwrite", color="secondary")
+                ])
+            ]
+        ),
+        dcc.Store(id="duplicate-rows", data=[]),
+        dcc.Store(id="overwrite-confirmed", data=False)
     ]
 
 # %% Function to create textbox rows
@@ -458,7 +477,7 @@ def validate_and_build_df(n_clicks, kit_id_value, entry_data, current_components
 
 # %% Update df whenever user edits the datatable
 @app.callback(
-    Output("edit-confirmation", "children"),
+    Output("edit-confirmation", "children",allow_duplicate=True),
     Output("database-table", "rowData"),
     Input("database-table", "cellValueChanged"),
     State("database-table", "rowData"),
@@ -470,7 +489,8 @@ def sync_table_edits(cellValueChanged, current_grid_data):
         raise dash.exceptions.PreventUpdate
 
     changed_col = cellValueChanged[0]['colId']
-    changed_row_index = cellValueChanged[0]['rowIndex']+1
+    changed_row_index = cellValueChanged[0]['rowIndex']
+    user_friendly_row = changed_row_index + 1
     new_value_raw = cellValueChanged[0]['value']
     old_value = cellValueChanged[0]['oldValue']
 
@@ -485,19 +505,19 @@ def sync_table_edits(cellValueChanged, current_grid_data):
             try:
                 datetime.strptime(str(new_value_raw), "%Y-%m-%d %H:%M:%S")
                 updated_grid_data[changed_row_index][changed_col] = new_value_raw
-                feedback_message = f"Column '{changed_col}' at Row {changed_row_index}, changed from '{old_value}' to '{new_value_raw}'."
+                feedback_message = f"Column '{changed_col}' at Row {user_friendly_row}, changed from '{old_value}' to '{new_value_raw}'."
                 feedback_style = {"color": "green"}
             except ValueError:
                 updated_grid_data[changed_row_index][changed_col] = old_value if old_value is not None else ""
-                feedback_message = f"Error: Invalid date/time format for '{changed_col}' at Row {changed_row_index}. Expected '{DATE_TIME_PLACEHOLDER}'. Value reverted to '{old_value if old_value is not None else ''}'."
+                feedback_message = f"Error: Invalid date/time format for '{changed_col}' at Row {user_friendly_row}. Expected '{DATE_TIME_PLACEHOLDER}'. Value reverted to '{old_value if old_value is not None else ''}'."
                 feedback_style = {"color": "red"}
         else:
             updated_grid_data[changed_row_index][changed_col] = "" # Keep as empty string if user clears it in UI
-            feedback_message = f"Column '{changed_col}' at Row {changed_row_index}, value cleared."
+            feedback_message = f"Column '{changed_col}' at Row {user_friendly_row}, value cleared."
             feedback_style = {"color": "green"}
     else:
         updated_grid_data[changed_row_index][changed_col] = new_value_raw
-        feedback_message = f"Column '{changed_col}' at Row {changed_row_index}, changed from '{old_value}' to '{new_value_raw}'."
+        feedback_message = f"Column '{changed_col}' at Row {user_friendly_row}, changed from '{old_value}' to '{new_value_raw}'."
         feedback_style = {"color": "green"}
 
     # After updating the changed cell, check if sampleid needs to be updated
@@ -566,7 +586,9 @@ app.clientside_callback(
 
 # %% Callback for the Upload Data button with duplicates checking
 @app.callback(
-    Output("edit-confirmation", "children", allow_duplicate=True), # Using edit-confirmation for feedback
+    Output("edit-confirmation", "children", allow_duplicate=True),
+    Output("overwrite-confirm-modal", "is_open"),
+    Output("duplicate-rows", "data"),
     Input("btn-upload-data", "n_clicks"),
     prevent_initial_call=True
 )
@@ -576,89 +598,99 @@ def upload_data_to_database(n_clicks):
     if n_clicks is None:
         raise dash.exceptions.PreventUpdate
 
-    # Filter out empty rows from database_df before attempting to upload
     df_to_upload = database_df[database_df['samplerid'].astype(str).str.strip() != ''].copy()
-
     if df_to_upload.empty:
-        return html.Div("No valid data to upload. All entries are empty or have empty Sampler IDs.", style={"color": "orange"})
+        return html.Div("No valid data to upload. All entries are empty or have empty Sampler IDs.", style={"color": "orange"}), False, []
 
-    # Clean up date/time columns to ensure they are None (for NULL) if they are empty strings
     for col in ['sample_start', 'sample_end', 'shipped_date', 'return_date']:
-        df_to_upload[col] = df_to_upload[col].replace('', np.nan) # np.nan will be translated to NULL by sqlalchemy
+        df_to_upload[col] = df_to_upload[col].replace('', np.nan)
 
-    feedback_messages = []
     try:
-        # Get existing sampleids from the database (reverted to original logic)
         existing_sampleids_df = pd.read_sql_query("SELECT sampleid FROM pas_tracking", mercury_sql_engine)
         existing_sampleids = set(existing_sampleids_df['sampleid'].dropna().astype(str).tolist())
-        
-        # Identify duplicates in the current dataframe to upload
+
         df_to_upload_sampleids = df_to_upload['sampleid'].astype(str)
-        internal_duplicates = df_to_upload_sampleids[df_to_upload_sampleids.duplicated(keep='first')]
+        duplicate_mask = df_to_upload_sampleids.isin(existing_sampleids)
 
-        # Find entries that already exist in the database
-        db_duplicates_mask = df_to_upload_sampleids.isin(existing_sampleids)
-        db_duplicates = df_to_upload[db_duplicates_mask]
-        
-        # Combine all duplicates (ensuring unique sampleid messages)
-        all_duplicate_sampleids = set(internal_duplicates.tolist() + db_duplicates['sampleid'].astype(str).tolist())
+        if duplicate_mask.any():
+            duplicate_df = df_to_upload[duplicate_mask].copy()
+            return dash.no_update, True, duplicate_df.to_dict("records")
 
-        if all_duplicate_sampleids:
-            # Filter out duplicates from the DataFrame to be uploaded
-            df_unique_to_upload = df_to_upload[~df_to_upload_sampleids.isin(all_duplicate_sampleids)].copy()
-            
-            # Prepare message for duplicates
-            duplicate_message = f"Duplicate entries detected and skipped for Sample IDs: {', '.join(sorted(list(all_duplicate_sampleids)))}. "
-            feedback_messages.append(html.Span(duplicate_message, style={"color": "orange"}))
-        else:
-            df_unique_to_upload = df_to_upload.copy()
-
-        if df_unique_to_upload.empty:
-            if not all_duplicate_sampleids: # Only show this if no duplicates were found at all
-                feedback_messages.append(html.Div("No new unique data to upload.", style={"color": "orange", "marginTop": "10px"}))
-            return html.Div(feedback_messages)
-
-        # Proceed with upload for unique entries
-        df_unique_to_upload.to_sql('pas_tracking', mercury_sql_engine, if_exists='append', index=False)
-        
-        success_message = f"Successfully uploaded {len(df_unique_to_upload)} new entries to 'pas_tracking' table!"
-        feedback_messages.append(html.Div(success_message, style={"color": "green", "marginTop": "10px"}))
+        df_to_upload.to_sql('pas_tracking', mercury_sql_engine, if_exists='append', index=False)
+        return html.Div(f"Successfully uploaded {len(df_to_upload)} new entries to 'pas_tracking' table!", style={"color": "green"}), False, []
 
     except Exception as e:
-        error_message = f"Error uploading data: {e}. Please check logs for details."
-        feedback_messages.append(html.Div(error_message, style={"color": "red", "marginTop": "10px"}))
         logging.error(f"Database upload error: {e}")
-
-    return html.Div(feedback_messages)
-
-
+        return html.Div(f"Error uploading data: {e}.", style={"color": "red"}), False, []
+    
 # %% Update button callback
 @app.callback(
-    Output("update-kitid-modal", "is_open",allow_duplicate=True),
+    Output("update-kitid-modal", "is_open", allow_duplicate=True),
     Output("database-store", "data"),
+    Output("db-loading-output", "children"),
     Input("btn-update", "n_clicks"),
     Input("update-done-button", "n_clicks"),
     State("update-kitid-modal", "is_open"),
     State("database-store", "data"),
     prevent_initial_call=True
 )
-def toggle_update_modal(open_clicks, done_clicks, is_open,db_tracking_data):
-
+def toggle_update_modal(open_clicks, done_clicks, is_open, db_tracking_data):
     triggered = ctx.triggered_id
+
     if triggered == "btn-update":
-        # Query the pas_tracking table and store in global variable
+        # Show loading while querying database
         try:
-            db_tracking_data = pd.read_sql_query("SELECT * FROM pas_tracking", mercury_sql_engine)
+            db_df = pd.read_sql_query("SELECT * FROM pas_tracking", mercury_sql_engine)
+            loading_msg = ""  # Hide loading spinner
         except Exception as e:
             logging.error(f"Error loading pas_tracking table: {e}")
-            db_tracking_data = pd.DataFrame().to_dict("records")
+            db_df = pd.DataFrame()
+            loading_msg = ""  # Hide loading even on error
 
-        return True,db_tracking_data.to_dict("records")  # open modal
+        return True, db_df.to_dict("records"), loading_msg
+
     elif triggered == "update-done-button":
-        return False,db_tracking_data
-        # close modal
+        return False, db_tracking_data, ""  # Closing modal, no DB call = no spinner
 
-    return is_open
+    return is_open, db_tracking_data, ""
+
+# %% Confirm overwrite
+@app.callback(
+    Output("edit-confirmation", "children",allow_duplicate=True),
+    Output("overwrite-confirm-modal", "is_open",allow_duplicate=True),
+    Input("confirm-overwrite", "n_clicks"),
+    State("duplicate-rows", "data"),
+    prevent_initial_call=True
+)
+def confirm_overwrite(n_clicks, duplicates_data):
+    if not duplicates_data:
+        raise dash.exceptions.PreventUpdate
+
+    try:
+        df_overwrite = pd.DataFrame(duplicates_data)
+        df_overwrite.replace('', np.nan, inplace=True)
+
+        with mercury_sql_engine.begin() as conn:
+            sampleids = df_overwrite['sampleid'].dropna().tolist()
+            for sid in sampleids:
+                conn.execute(text("DELETE FROM pas_tracking WHERE sampleid = :sid"), {"sid": sid})
+
+        df_overwrite.to_sql('pas_tracking', mercury_sql_engine, if_exists='append', index=False)
+
+        return html.Div(f"Successfully overwrote {len(df_overwrite)} entries.", style={"color": "green"}), False
+
+    except Exception as e:
+        logging.error(f"Overwrite failed: {e}")
+        return html.Div(f"Error overwriting: {e}", style={"color": "red"}), False
+
+# %% Cancel overwrite
+@app.callback(
+    Output("overwrite-confirm-modal", "is_open",allow_duplicate=True),
+    Input("cancel-overwrite", "n_clicks"),
+    prevent_initial_call=True
+)
+def cancel_overwrite(n):
+    return False
 
 # %% Update Done button callback
 @app.callback(
