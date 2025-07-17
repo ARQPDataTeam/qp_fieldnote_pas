@@ -279,8 +279,20 @@ def change_layout(breakpoint_name: str, window_width: int):
                 className="mt-4",
                 style={'display': 'none'} 
             ),
-            className="d-flex justify-content-center" 
+            className="d-flex justify-content-center"
         ),
+        
+        html.Div(
+            dbc.Button(
+                "Download Database as CSV",
+                id="btn-download-db",
+                color="info",
+                className="mt-2",
+            ),
+            className="d-flex justify-content-center"
+        ),
+        
+        dcc.Download(id="download-db-csv"),
         dbc.Modal(
             id="overwrite-confirm-modal",
             is_open=False,
@@ -726,6 +738,23 @@ def validate_and_display_kitid(n_clicks, kit_id,db_tracking_data):
     database_df = filtered_df
 
     return "", {}, False, database_df.to_dict("records"), filtered_df.to_dict("records"),{"display": "block", "margin-top": "20px"}
+
+# %% Callback to trigger download of most recent database contents
+@app.callback(
+    Output("download-db-csv", "data"),
+    Input("btn-download-db", "n_clicks"),
+    prevent_initial_call=True
+)
+def download_db_csv(n_clicks):
+    try:
+        db_df = pd.read_sql_query("SELECT * FROM pas_tracking", mercury_sql_engine)
+        now_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"pas_tracking_{now_str}.csv"
+        return dcc.send_data_frame(db_df.to_csv, filename=filename, index=False)
+    except Exception as e:
+        logging.error(f"Error exporting pas_tracking to CSV: {e}")
+        return dash.no_update
+
 
 
 # %% Run app
