@@ -24,7 +24,7 @@ else:
     local = False
 
 # Version number to display
-version = "2.0"
+version = "2.5"
 
 # Setup logger
 if not os.path.exists('logs'):
@@ -66,7 +66,7 @@ mercury_sql_engine = create_engine(mercury_sql_engine_string)
 database_df = pd.DataFrame(columns=[
     'sample_start', 'sample_end', 'sampleid', 'kitid', 'samplerid',
     'siteid', 'shipped_location', 'shipped_date', 'return_date',
-    'sample_type', 'note'
+    'sample_type', 'note', 'screen_sampling_rate'
 ])
 
 # Define the placeholder for date/time columns
@@ -82,21 +82,22 @@ tablehtml = html.Div(
              "valueFormatter": {"function": f"params.value === '' || params.value === null ? '{DATE_TIME_PLACEHOLDER}' : params.value"},
              "cellClassRules": {
                  "ag-placeholder-text": "params.value === '' || params.value === null"
-             }},
+             }, "suppressSizeToFit": True, "width": 170},
             {"field": "sample_end", "headerName": "Sample End", "editable": True,
              "valueFormatter": {"function": f"params.value === '' || params.value === null ? '{DATE_TIME_PLACEHOLDER}' : params.value"},
              "cellClassRules": {
                  "ag-placeholder-text": "params.value === '' || params.value === null"
-             }},
-            {"field": "sampleid", "headerName": "Sample ID", "editable": False},
-            {"field": "kitid", "headerName": "Kit ID", "editable": True},
-            {"field": "samplerid", "headerName": "Sampler ID", "editable": True},
-            {"field": "siteid", "headerName": "Site ID", "editable": True},
-            {"field": "shipped_location", "headerName": "Shipped Location", "editable": True},
-            {"field": "shipped_date", "headerName": "Shipped Date", "editable": True, "cellEditor": "agDateStringCellEditor"},
-            {"field": "return_date", "headerName": "Return Date", "editable": True, "cellEditor": "agDateStringCellEditor"},
-            {"field": "sample_type", "headerName": "Sample Type", "editable": True, "cellEditor": "agSelectCellEditor", "cellEditorParams": {"values": ["Sample", "Blank"]}},
-            {"field": "note", "headerName": "Note", "editable": True}
+             }, "suppressSizeToFit": True, "width": 170},
+            {"field": "sampleid", "headerName": "Sample ID", "editable": False, "suppressSizeToFit": True, "width": 170},
+            {"field": "kitid", "headerName": "Kit ID", "editable": True, "suppressSizeToFit": True, "width": 100},
+            {"field": "samplerid", "headerName": "Sampler ID", "editable": True, "suppressSizeToFit": True, "width": 110},
+            {"field": "siteid", "headerName": "Site ID", "editable": True, "suppressSizeToFit": True, "width": 80},
+            {"field": "shipped_location", "headerName": "Shipped Location", "editable": True, "suppressSizeToFit": True, "width": 145},
+            {"field": "shipped_date", "headerName": "Shipped Date", "editable": True, "cellEditor": "agDateStringCellEditor", "suppressSizeToFit": True, "width": 120},
+            {"field": "return_date", "headerName": "Return Date", "editable": True, "cellEditor": "agDateStringCellEditor", "suppressSizeToFit": True, "width": 120},
+            {"field": "sample_type", "headerName": "Sample Type", "editable": True, "cellEditor": "agSelectCellEditor", "cellEditorParams": {"values": ["Sample", "Blank"]}, "suppressSizeToFit": True, "width": 120},
+            {"field": "screen_sampling_rate","headerName": "SSR","editable": True,"tooltipField": "screen_sampling_rate","headerTooltip": "Screen Sampling Rate", "suppressSizeToFit": True, "width": 60},
+            {"field": "note", "headerName": "Note", "editable": True, "suppressSizeToFit": True, "width": 200}
         ],
         defaultColDef={"resizable": True, "sortable": True},
         columnSize="sizeToFit",
@@ -147,7 +148,15 @@ def change_layout(breakpoint_name: str, window_width: int):
     return [
         dbc.Row([
             html.H1('QP FieldNote - Passive Mercury'),
-            html.Span('v. ' + version),
+            html.Span([
+                f'v. {version} ',
+                html.A(
+                    "Documentation (how to use)",
+                    href="https://github.com/ARQPDataTeam/qp_fieldnote_pas/blob/main/README.md",
+                    target="_blank",
+                    style={"color": "#66b3ff", "marginLeft": "10px", "fontSize": "0.9em"}
+                )
+            ]),
             html.Br(),
             html.Br(),
             html.Div([
@@ -480,7 +489,8 @@ def validate_and_build_df(n_clicks, kit_id_value, entry_data, current_components
             'shipped_date': None,
             'return_date': None,
             'sample_type': entry.get("radio", ""),
-            'note': None
+            'note': None,
+            'screen_sampling_rate': None
         })
 
     database_df = pd.DataFrame(records)
@@ -653,6 +663,9 @@ def toggle_update_modal(open_clicks, done_clicks, is_open, db_tracking_data):
         # Show loading while querying database
         try:
             db_df = pd.read_sql_query("SELECT * FROM pas_tracking", mercury_sql_engine)
+            for col in ["sample_start", "sample_end"]:
+                if col in db_df.columns:
+                    db_df[col] = pd.to_datetime(db_df[col], errors='coerce').dt.strftime("%Y-%m-%d %H:%M:%S")
             loading_msg = ""  # Hide loading spinner
         except Exception as e:
             logging.error(f"Error loading pas_tracking table: {e}")
@@ -748,6 +761,9 @@ def validate_and_display_kitid(n_clicks, kit_id,db_tracking_data):
 def download_db_csv(n_clicks):
     try:
         db_df = pd.read_sql_query("SELECT * FROM pas_tracking", mercury_sql_engine)
+        for col in ["sample_start", "sample_end"]:
+            if col in db_df.columns:
+                db_df[col] = pd.to_datetime(db_df[col], errors='coerce').dt.strftime("%Y-%m-%d %H:%M:%S")
         now_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"pas_tracking_{now_str}.csv"
         return dcc.send_data_frame(db_df.to_csv, filename=filename, index=False)
