@@ -10,6 +10,7 @@ This Dash application is used for entering, editing, and managing passive mercur
 1. Click the **New** button.
 2. Enter one or more Sampler IDs. They must follow the format `ECCC####`.
    - A new row appears automatically once a valid ID is entered.
+   - If scanning with a barcode scanner, the new textbox will automatically be selected (allowing for consecutive scans without needing to click with the keyboard/mouse)
 3. Select "Sample" or "Blank" for each entry.
 4. Enter the Kit ID in the format `EC-####`.
 5. Click **Done**.
