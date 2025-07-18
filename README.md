@@ -24,8 +24,8 @@ This Dash application is used for entering, editing, and managing passive mercur
   - Location
   - Notes
   - Sample type (via dropdown)
+- **PRESS ENTER AFTER EDITING ANY CELL TO SAVE THAT ENTRY. A FEEDBACK MESSAGE BELOW THE TABLE WILL CONFIRM YOUR EDIT WAS SAVED**
 - If you change `kitid` or `samplerid`, the `sampleid` will update automatically.
-- Feedback will appear below the table for any edit.
 
 ### Updating Existing Kit Entries
 
