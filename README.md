@@ -53,4 +53,4 @@ This Dash application is used for entering, editing, and managing passive mercur
 
 ## Resetting Input Fields
 
-- Refresh the browser to reset sampler input fields and modal state
+- Refresh the browser to reset the app
