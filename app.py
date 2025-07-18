@@ -24,7 +24,7 @@ else:
     local = False
 
 # Version number to display
-version = "2.5"
+version = "2.6"
 
 # Setup logger
 if not os.path.exists('logs'):
@@ -524,15 +524,16 @@ def sync_table_edits(cellValueChanged, current_grid_data):
     # Update the value in the grid data first
     if changed_col in ['sample_start', 'sample_end']:
         if new_value_raw:
-            try:
-                datetime.strptime(str(new_value_raw), "%Y-%m-%d %H:%M:%S")
+            strict_dt_regex = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+
+            if not re.fullmatch(strict_dt_regex, str(new_value_raw)):
+                updated_grid_data[changed_row_index][changed_col] = old_value if old_value is not None else ""
+                feedback_message = f"Invalid datetime format for '{changed_col}' at Row {user_friendly_row}. Expected format: YYYY-MM-DD HH:MM:SS."
+                feedback_style = {"color": "red"}
+            else:
                 updated_grid_data[changed_row_index][changed_col] = new_value_raw
                 feedback_message = f"Column '{changed_col}' at Row {user_friendly_row}, changed from '{old_value}' to '{new_value_raw}'."
                 feedback_style = {"color": "green"}
-            except ValueError:
-                updated_grid_data[changed_row_index][changed_col] = old_value if old_value is not None else ""
-                feedback_message = f"Error: Invalid date/time format for '{changed_col}' at Row {user_friendly_row}. Expected '{DATE_TIME_PLACEHOLDER}'. Value reverted to '{old_value if old_value is not None else ''}'."
-                feedback_style = {"color": "red"}
         else:
             updated_grid_data[changed_row_index][changed_col] = "" # Keep as empty string if user clears it in UI
             feedback_message = f"Column '{changed_col}' at Row {user_friendly_row}, value cleared."
