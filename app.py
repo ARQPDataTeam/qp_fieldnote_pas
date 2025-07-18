@@ -625,7 +625,17 @@ def upload_data_to_database(n_clicks):
         return html.Div("No valid data to upload. All entries are empty or have empty Sampler IDs.", style={"color": "orange"}), False, []
 
     for col in ['sample_start', 'sample_end', 'shipped_date', 'return_date']:
-        df_to_upload[col] = df_to_upload[col].replace('', np.nan)
+        df_to_upload[col] = pd.to_datetime(df_to_upload[col], errors='coerce')
+
+        # Convert any timezone-aware datetimes to naive
+        if pd.api.types.is_datetime64tz_dtype(df_to_upload[col]):
+            df_to_upload[col] = df_to_upload[col].dt.tz_convert(None)
+    
+        # Drop tzinfo even from objects that were naive-but-strange
+        df_to_upload[col] = df_to_upload[col].dt.tz_localize(None)
+    
+        # Format to ensure no millisecond or tzinfo remnants
+        df_to_upload[col] = df_to_upload[col].dt.strftime("%Y-%m-%d %H:%M:%S")
 
     try:
         existing_sampleids_df = pd.read_sql_query("SELECT sampleid FROM pas_tracking", mercury_sql_engine)
