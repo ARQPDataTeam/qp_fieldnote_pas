@@ -24,7 +24,7 @@ else:
     local = False
 
 # Version number to display
-version = "3.0"
+version = "3.1"
 
 # Setup logger
 if not os.path.exists('logs'):
@@ -229,7 +229,8 @@ def change_layout(breakpoint_name: str, window_width: int):
                             dbc.Input(
                                 id="static-kit-id-input",
                                 type="text",
-                                placeholder="EC-XXXX", # Placeholder added
+                                placeholder="EC-XXXX",
+                                autoComplete="off",
                                 className="text-center",
                                 style={'width': '150px', 'margin': '0 auto'}
                             ),
