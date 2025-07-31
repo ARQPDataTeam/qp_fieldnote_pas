@@ -27,7 +27,7 @@ This Dash application is used for entering, editing, and managing passive mercur
 - **PRESS ENTER AFTER EDITING ANY CELL TO SAVE THAT ENTRY. A FEEDBACK MESSAGE BELOW THE TABLE WILL CONFIRM YOUR EDIT WAS SAVED**
 - If you change `kitid` or `samplerid`, the `sampleid` will update automatically.
 
-### Updating Existing Kit Entries
+### Updating Existing Entries
 
 1. Click the **Update** button.
 2. Choose one of three options to search by: **Kit ID**, **Sampler ID**, **Location Shipped**
