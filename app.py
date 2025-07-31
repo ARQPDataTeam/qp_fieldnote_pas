@@ -1,10 +1,10 @@
 # %% Import + setup
 import dash
-from dash import html, Input, Output, State, ctx, dcc, Dash,dash_table
+from dash import html, Input, Output, State, ctx, dcc, Dash
 import dash_bootstrap_components as dbc
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine, MetaData, text
+from sqlalchemy import create_engine, text
 from credentials import sql_engine_string_generator
 from flask import request
 from datetime import datetime
@@ -24,7 +24,7 @@ else:
     local = False
 
 # Version number to display
-version = "2.6"
+version = "3.0"
 
 # Setup logger
 if not os.path.exists('logs'):
@@ -77,6 +77,7 @@ global tablehtml
 tablehtml = html.Div(
     dag.AgGrid(
         id="database-table",
+        enableEnterpriseModules=True,
         columnDefs=[
             {"field": "sample_start", "headerName": "Sample Start", "editable": True,
              "valueFormatter": {"function": f"params.value === '' || params.value === null ? '{DATE_TIME_PLACEHOLDER}' : params.value"},
@@ -96,14 +97,18 @@ tablehtml = html.Div(
             {"field": "shipped_date", "headerName": "Shipped Date", "editable": True, "cellEditor": "agDateStringCellEditor", "suppressSizeToFit": True, "width": 120},
             {"field": "return_date", "headerName": "Return Date", "editable": True, "cellEditor": "agDateStringCellEditor", "suppressSizeToFit": True, "width": 120},
             {"field": "sample_type", "headerName": "Sample Type", "editable": True, "cellEditor": "agSelectCellEditor", "cellEditorParams": {"values": ["Sample", "Blank"]}, "suppressSizeToFit": True, "width": 120},
-            {"field": "screen_sampling_rate","headerName": "SSR","editable": True,"tooltipField": "screen_sampling_rate","headerTooltip": "Screen Sampling Rate", "suppressSizeToFit": True, "width": 60},
             {"field": "note", "headerName": "Note", "editable": True, "suppressSizeToFit": True, "width": 200}
         ],
-        defaultColDef={"resizable": True, "sortable": True},
+        defaultColDef={"resizable": True, "sortable": True,"editable": True},
         columnSize="sizeToFit",
         dashGridOptions={"rowSelection":"single",
                          "animateRows": True,
                          "editable": True,
+                         "enableRangeSelection": True,
+                         "enableFillHandle": True,
+                         "undoRedoCellEditing": True,
+                         "undoRedoCellEditingLimit": 20,
+                         "suppressClipboardPaste": False,
                          "components": {}
         },
         className="ag-theme-alpine-dark",
@@ -111,10 +116,6 @@ tablehtml = html.Div(
     ),
     style={"padding": "0 40px"}
 )
-
-
-
-
 
 # %% Layout function, useful for having two UI options (e.g., mobile vs desktop)
 def serve_layout():
@@ -176,6 +177,7 @@ def change_layout(breakpoint_name: str, window_width: int):
                         dcc.Input(
                             style={'textAlign': 'center'},
                             id="user",
+                            autoComplete="off",
                             placeholder="..."
                         )
                     ]),
@@ -230,7 +232,7 @@ def change_layout(breakpoint_name: str, window_width: int):
                                 placeholder="EC-XXXX", # Placeholder added
                                 className="text-center",
                                 style={'width': '150px', 'margin': '0 auto'}
-                            )
+                            ),
                         ],
                         className="d-flex flex-column align-items-center"),
                         justify="center",
@@ -258,14 +260,41 @@ def change_layout(breakpoint_name: str, window_width: int):
             children=[
                 dbc.ModalHeader("Update Kit Entry"),
                 dbc.ModalBody([
-                    html.H5("Enter Kit ID", className="mb-2 text-center"),
-                    dbc.Input(
-                        id="update-kitid-input",
-                        type="text",
-                        placeholder="EC-XXXX",
-                        className="text-center",
-                        style={'width': '150px', 'margin': '0 auto'}
+                    html.H5("Search by:", className="mb-2 text-center"),
+                    dbc.RadioItems(
+                        id="update-search-mode",
+                        options=[
+                            {"label": "Kit ID", "value": "kit"},
+                            {"label": "Sampler ID", "value": "sampler"},
+                            {"label": "Shipped Location", "value": "location"}
+                        ],
+                        value="kit",
+                        inline=True,
+                        className="mb-3 d-flex justify-content-center text-light"
                     ),
+                    html.H5("Enter ID", className="mb-2 text-center"),
+                    html.Div([
+                        dbc.Input(
+                            id="update-kitid-textinput",
+                            type="text",
+                            autoComplete="off",
+                            placeholder="EC-XXXX",
+                            className="text-center",
+                            persistence=True,
+                            persistence_type='session',
+                            style={'width': '150px', 'margin': '0 auto', 'display': 'block'}
+                        ),
+                        dcc.Dropdown(
+                            id="update-kitid-dropdown",
+                            options=[],  # To be set dynamically
+                            placeholder="Select a Shipped Location",
+                            searchable=True,
+                            clearable=False,
+                            persistence=True,
+                            persistence_type='session',
+                            style={'width': '250px', 'margin': '0 auto', 'display': 'none'}
+                        )
+                    ], id="update-id-input-container"),
                     html.Div(id="update-kitid-feedback", className="mt-3 text-center")
                 ]),
                 dbc.ModalFooter(
@@ -328,6 +357,7 @@ def create_text_row(index: int, value="", editable=True, selection=None):
                 type="text",
                 value=value,
                 placeholder="ECCCXXXX",
+                autoComplete="off",
                 disabled=not editable,
                 debounce=False,
                 className="mb-2 me-2"
@@ -737,22 +767,52 @@ def cancel_overwrite(n):
     Output("kitid-filtered-data", "data"),
     Output("btn-upload-data", "style", allow_duplicate=True),
     Input("update-done-button", "n_clicks"),
-    State("update-kitid-input", "value"),
+    State("update-kitid-textinput", "value"),
+    State("update-kitid-dropdown", "value"),
     State("database-store", "data"),
+    State("update-search-mode", "value"),
     prevent_initial_call=True
 )
-def validate_and_display_kitid(n_clicks, kit_id,db_tracking_data):
+def validate_and_display_kitid(n_clicks, text_value, dropdown_value, db_tracking_data, search_mode):
+    entered_id = dropdown_value if search_mode == "location" else text_value
     
-    
-    if not kit_id:
-        return "Invalid Kit ID", {"color": "red"}, True, dash.no_update, dash.no_update, dash.no_update
-
-    if not re.fullmatch(r"EC-\d{4}", kit_id.strip()):
-        return "Invalid Kit ID", {"color": "red"}, True, dash.no_update, dash.no_update, dash.no_update
-
-    # Filter the loaded tracking data for the entered Kit ID
     db_tracking_data = pd.DataFrame(db_tracking_data)
-    filtered_df = db_tracking_data[db_tracking_data['kitid'] == kit_id].copy()
+    
+    # Kit ID search logic
+    if search_mode == "kit":
+        if not re.fullmatch(r"EC-\d{4}", entered_id.strip()):
+            return "Invalid Kit ID", {"color": "red"}, True, dash.no_update, dash.no_update, dash.no_update
+        filtered_df = db_tracking_data[db_tracking_data['kitid'] == entered_id]
+    #Location search logic
+    elif search_mode == "location":
+        if not entered_id.strip():
+            return "Shipped Location cannot be empty.", {"color": "red"}, True, dash.no_update, dash.no_update, dash.no_update
+    
+        matches = db_tracking_data[
+            db_tracking_data["shipped_location"].str.strip().str.lower() == entered_id.strip().lower()
+        ].copy()
+    
+        if matches.empty:
+            return f"No entries found for shipped location '{entered_id}'.", {"color": "orange"}, True, dash.no_update, dash.no_update, dash.no_update
+    
+        filtered_df = matches
+    # Sampler ID search logic 
+    else:
+        if not re.fullmatch(r"ECCC\d{4}", entered_id.strip()):
+            return "Invalid Sampler ID", {"color": "red"}, True, dash.no_update, dash.no_update, dash.no_update
+    
+        matches = db_tracking_data[db_tracking_data['samplerid'] == entered_id].copy()
+    
+        if matches.empty:
+            return "No entries found for this Sampler ID.", {"color": "orange"}, True, dash.no_update, dash.no_update, dash.no_update
+    
+        # Most recent sample_start (fallback to index if missing)
+        if "sample_start" in matches.columns:
+            matches["sample_start"] = pd.to_datetime(matches["sample_start"], errors="coerce")
+            matches = matches.sort_values("sample_start", ascending=False)
+        
+        recent_kitid = matches["kitid"].dropna().iloc[0]
+        filtered_df = db_tracking_data[db_tracking_data["kitid"] == recent_kitid]
 
     if filtered_df.empty:
         return "No entries found for this Kit ID.", {"color": "orange"}, True, dash.no_update, dash.no_update, dash.no_update
@@ -762,6 +822,34 @@ def validate_and_display_kitid(n_clicks, kit_id,db_tracking_data):
     database_df = filtered_df
 
     return "", {}, False, database_df.to_dict("records"), filtered_df.to_dict("records"),{"display": "block", "margin-top": "20px"}
+
+
+
+# %% Dynamic input switch for update modal
+@app.callback(
+    Output("update-kitid-textinput", "style"),
+    Output("update-kitid-dropdown", "style"),
+    Output("update-kitid-textinput", "placeholder"),
+    Output("update-kitid-dropdown", "options"),
+    Input("update-search-mode", "value"),
+    State("database-store", "data")
+)
+def toggle_update_input(search_mode, db_data):
+    show_text = {'width': '150px', 'margin': '0 auto', 'display': 'block'}
+    hide_text = {'width': '150px', 'margin': '0 auto', 'display': 'none'}
+    show_dropdown = {'width': '250px', 'margin': '0 auto', 'display': 'block'}
+    hide_dropdown = {'width': '250px', 'margin': '0 auto', 'display': 'none'}
+
+    if search_mode == "location":
+        db_df = pd.DataFrame(db_data)
+        locations = sorted(db_df["shipped_location"].dropna().unique().tolist())
+        return hide_text, show_dropdown, dash.no_update, [{"label": loc, "value": loc} for loc in locations]
+
+    elif search_mode == "sampler":
+        return show_text, hide_dropdown, "ECCCXXXX", []
+
+    # default to Kit ID
+    return show_text, hide_dropdown, "EC-XXXX", []
 
 # %% Callback to trigger download of most recent database contents
 @app.callback(
