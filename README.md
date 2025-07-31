@@ -30,10 +30,11 @@ This Dash application is used for entering, editing, and managing passive mercur
 ### Updating Existing Kit Entries
 
 1. Click the **Update** button.
-2. Enter an existing Kit ID (e.g., `EC-1234`).
-3. If the Kit ID exists, matching rows will be loaded into the table.
-4. Make any edits directly in the table.
-5. You may then upload the updated data.
+2. Choose one of three options to search by: **Kit ID**, **Sampler ID**, **Location Shipped**
+3. For **Kit ID** or **Sampler ID**, enter an existing ID (e.g., `EC-1234`). If the ID exists, matching rows will be loaded into the table (note when using **Sampler ID**, the only entries shown will be from the most recent kit containing the entered **Sampler ID**.
+4. For **Location Shipped**, select from a dropdown that displays all unique locations stored in the database. All entries with this location will be displayed
+5. Make any edits directly in the table.
+6. You may then upload the updated data.
 
 ### Uploading to Database
 
