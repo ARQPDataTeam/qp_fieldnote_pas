@@ -16,6 +16,15 @@ This Dash application is used for entering, editing, and managing passive mercur
 5. Click **Done**.
 6. The entries will be shown in the table with auto-generated `sampleid` values in the format `EC-####_ECCC####`.
 
+### Updating Existing Entries
+
+1. Click the **Update** button.
+2. Choose one of three options to search by: **Kit ID**, **Sampler ID**, **Location Shipped**
+3. For **Kit ID** or **Sampler ID**, enter an existing ID (e.g., `EC-1234`). If the ID exists, matching rows will be loaded into the table (note when using **Sampler ID**, only entries for the most recent kit containing the entered **Sampler ID** will be shown).
+4. For **Location Shipped**, select from a dropdown that displays all unique locations stored in the database. All entries with this location will be displayed
+5. Make any edits directly in the table.
+6. You may then upload the updated data.
+
 ### Editing Table Entries
 
 - All columns except `sampleid` are editable.
@@ -26,15 +35,6 @@ This Dash application is used for entering, editing, and managing passive mercur
   - Sample type (via dropdown)
 - **PRESS ENTER AFTER EDITING ANY CELL TO SAVE THAT ENTRY. A FEEDBACK MESSAGE BELOW THE TABLE WILL CONFIRM YOUR EDIT WAS SAVED**
 - If you change `kitid` or `samplerid`, the `sampleid` will update automatically.
-
-### Updating Existing Entries
-
-1. Click the **Update** button.
-2. Choose one of three options to search by: **Kit ID**, **Sampler ID**, **Location Shipped**
-3. For **Kit ID** or **Sampler ID**, enter an existing ID (e.g., `EC-1234`). If the ID exists, matching rows will be loaded into the table (note when using **Sampler ID**, only entries for the most recent kit containing the entered **Sampler ID** will be shown).
-4. For **Location Shipped**, select from a dropdown that displays all unique locations stored in the database. All entries with this location will be displayed
-5. Make any edits directly in the table.
-6. You may then upload the updated data.
 
 ### Uploading to Database
 
