@@ -24,7 +24,7 @@ else:
     local = False
 
 # Version number to display
-version = "3.7"
+version = "3.8"
 
 # Setup logger
 if not os.path.exists('logs'):
@@ -109,6 +109,7 @@ def serve_layout():
     global databases
     global users
     global sites
+    global sites_clean
     global tablehtml
     
     # Pull required data from tables
@@ -864,6 +865,9 @@ def validate_and_display_kitid(n_clicks, text_value, dropdown_value, db_tracking
         return "No entries found for this Kit ID.", {"color": "orange"}, True, dash.no_update, dash.no_update, dash.no_update
     
     # Update global dataframe
+    filtered_df["sample_start"] = filtered_df["sample_start"].str.slice(stop=16)
+    filtered_df["sample_end"] = filtered_df["sample_end"].str.slice(stop=16)
+    filtered_df["siteid"] = [site_clean for x in filtered_df["siteid"] for site_clean in sites_clean if x in site_clean]
     global database_df
     database_df = filtered_df
 
