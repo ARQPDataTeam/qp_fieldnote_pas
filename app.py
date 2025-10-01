@@ -24,7 +24,7 @@ else:
     local = False
 
 # Version number to display
-version = "3.1"
+version = "3.7"
 
 # Setup logger
 if not os.path.exists('logs'):
@@ -39,16 +39,28 @@ logging.basicConfig(
 
 logging.getLogger("azure").setLevel(logging.ERROR)
 
+external_stylesheets=[
+        dbc.themes.SLATE,
+        "https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css",
+        '/assets/custom.css'
+]
+external_scripts = [
+    "https://cdn.jsdelivr.net/npm/flatpickr",
+    "https://cdn.jsdelivr.net/npm/inputmask/dist/inputmask.min.js"
+]
+
 # Initialize the dash app as 'app'
 if not local:
     app = Dash(__name__,
-               external_stylesheets=[dbc.themes.SLATE], # REMOVED PLACEHOLDER_CSS from here
+               external_stylesheets=external_stylesheets, 
+               external_scripts=external_scripts,
                requests_pathname_prefix="/app/AQPD/",
                routes_pathname_prefix="/app/AQPD/",
                suppress_callback_exceptions=True)
 else:
     app = Dash(__name__,
-               external_stylesheets=[dbc.themes.SLATE], # REMOVED PLACEHOLDER_CSS from here
+               external_stylesheets=external_stylesheets, 
+               external_scripts=external_scripts,
                suppress_callback_exceptions=True)
 
 # Global variable to store headers
@@ -69,67 +81,88 @@ database_df = pd.DataFrame(columns=[
     'sample_type', 'note', 'screen_sampling_rate'
 ])
 
+# Global table headers dict
+headerNames = {
+    "sample_start": "Sample Start",
+    "sample_end": "Sample End",
+    "sampleid": "Sample ID",
+    "kitid": "Kit ID",
+    "samplerid": "Sampler ID",
+    "siteid": "Site ID",
+    "shipped_location": "Shipped Location",
+    "shipped_date": "Shipped Date",
+    "return_date": "Return Date",
+    "sample_type": "Sample Type",
+    "note": "Note"
+}
+
+
 # Define the placeholder for date/time columns
-DATE_TIME_PLACEHOLDER = "YYYY-MM-DD HH:MM:SS"
+DATE_TIME_PLACEHOLDER = "YYYY-MM-DD HH:MM"
 
 # Table div
 global tablehtml
-tablehtml = html.Div(
-    dag.AgGrid(
-        id="database-table",
-        enableEnterpriseModules=True,
-        columnDefs=[
-            {"field": "sample_start", "headerName": "Sample Start", "editable": True,
-             "valueFormatter": {"function": f"params.value === '' || params.value === null ? '{DATE_TIME_PLACEHOLDER}' : params.value"},
-             "cellClassRules": {
-                 "ag-placeholder-text": "params.value === '' || params.value === null"
-             }, "suppressSizeToFit": True, "width": 170},
-            {"field": "sample_end", "headerName": "Sample End", "editable": True,
-             "valueFormatter": {"function": f"params.value === '' || params.value === null ? '{DATE_TIME_PLACEHOLDER}' : params.value"},
-             "cellClassRules": {
-                 "ag-placeholder-text": "params.value === '' || params.value === null"
-             }, "suppressSizeToFit": True, "width": 170},
-            {"field": "sampleid", "headerName": "Sample ID", "editable": False, "suppressSizeToFit": True, "width": 170},
-            {"field": "kitid", "headerName": "Kit ID", "editable": True, "suppressSizeToFit": True, "width": 100},
-            {"field": "samplerid", "headerName": "Sampler ID", "editable": True, "suppressSizeToFit": True, "width": 110},
-            {"field": "siteid", "headerName": "Site ID", "editable": True, "suppressSizeToFit": True, "width": 80},
-            {"field": "shipped_location", "headerName": "Shipped Location", "editable": True, "suppressSizeToFit": True, "width": 145},
-            {"field": "shipped_date", "headerName": "Shipped Date", "editable": True, "cellEditor": "agDateStringCellEditor", "suppressSizeToFit": True, "width": 120},
-            {"field": "return_date", "headerName": "Return Date", "editable": True, "cellEditor": "agDateStringCellEditor", "suppressSizeToFit": True, "width": 120},
-            {"field": "sample_type", "headerName": "Sample Type", "editable": True, "cellEditor": "agSelectCellEditor", "cellEditorParams": {"values": ["Sample", "Blank"]}, "suppressSizeToFit": True, "width": 120},
-            {"field": "note", "headerName": "Note", "editable": True, "suppressSizeToFit": True, "width": 200}
-        ],
-        defaultColDef={"resizable": True, "sortable": True,"editable": True},
-        columnSize="sizeToFit",
-        dashGridOptions={"rowSelection":"single",
-                         "animateRows": True,
-                         "editable": True,
-                         "enableRangeSelection": True,
-                         "enableFillHandle": True,
-                         "undoRedoCellEditing": True,
-                         "undoRedoCellEditingLimit": 20,
-                         "suppressClipboardPaste": False,
-                         "components": {}
-        },
-        className="ag-theme-alpine-dark",
-        style={"height": "400px", "width": "100%"}
-    ),
-    style={"padding": "0 40px"}
-)
+
 
 # %% Layout function, useful for having two UI options (e.g., mobile vs desktop)
 def serve_layout():
     global databases
     global users
     global sites
-
+    global tablehtml
+    
     # Pull required data from tables
     users = pd.read_sql_table("users", dcp_sql_engine)
     sites = pd.read_sql_query("select * from stations", dcp_sql_engine)
-
+    
+    sites_clean = sorted([
+        f"{row.description} ({row.siteid})"
+        for _, row in sites.query("projectid == 'MERCURY_PASSIVE'").iterrows()
+    ])
+    
     dcp_sql_engine.dispose()
     mercury_sql_engine.dispose()
-
+    
+    
+    tablehtml = html.Div(
+        dag.AgGrid(
+            id="database-table",
+            enableEnterpriseModules=True,
+            columnDefs=[
+                {"field": "sample_start", "headerName": "Sample Start", "editable": True,"cellEditor": {"function": "DateTimePicker"}, "suppressSizeToFit": True, "width": 145},
+                {"field": "sample_end", "headerName": "Sample End", "editable": True,"cellEditor": {"function": "DateTimePicker"}, "suppressSizeToFit": True, "width": 145},
+                {"field": "sampleid", "headerName": "Sample ID", "editable": False, "suppressSizeToFit": True, "width": 156,"hide": True},
+                {"field": "kitid", "headerName": "Kit ID", "editable": True, "suppressSizeToFit": True, "width": 100},
+                {"field": "samplerid", "headerName": "Sampler ID", "editable": True, "suppressSizeToFit": True, "width": 127},
+                #{"field": "siteid", "headerName": "Site ID", "editable": True, "suppressSizeToFit": True, "width": 150,
+                # "cellEditor": "agRichSelectCellEditor","cellEditorParams": {"values": sites_clean,"searchEnabled": True,"filterList": True,}},
+                {"field": "siteid", "headerName": "Site", "editable": True, "suppressSizeToFit": True, "width": 150,
+                 "cellEditor": {"function": "SearchableDropdownEditor"},"cellEditorParams": {"values": sites_clean}},
+                {"field": "shipped_location", "headerName": "Shipped Location", "editable": True, "suppressSizeToFit": True, "width": 165},
+                {"field": "shipped_date","headerName": "Shipped Date","editable": True,"cellEditor": {"function": "DatePicker"},"suppressSizeToFit": True, "width": 146},
+                {"field": "return_date", "headerName": "Return Date", "editable": True,"cellEditor": {"function": "DatePicker"},"suppressSizeToFit": True, "width": 133},
+                {"field": "sample_type", "headerName": "Sample Type", "editable": True, "cellEditor": "agSelectCellEditor", "cellEditorParams": {"values": ["Sample", "Blank"]}, "suppressSizeToFit": True, "width": 130},
+                {"field": "note", "headerName": "Note", "editable": True, "suppressSizeToFit": True, "width": 200}
+            ],
+            defaultColDef={"resizable": True, "sortable": True,"editable": True},
+            columnSize="sizeToFit",
+            dashGridOptions={"rowSelection":"single",
+                             "animateRows": True,
+                             "editable": True,
+                             "enableRangeSelection": True,
+                             "enableFillHandle": True,
+                             "undoRedoCellEditing": True,
+                             "undoRedoCellEditingLimit": 20,
+                             "suppressClipboardPaste": False,
+                             "components":{},
+                             "loading": False
+            },
+            className="ag-theme-alpine-dark",
+            style={"height": "400px", "width": "100%"}
+        ),
+        style={"padding": "0 40px"}
+    )
+    
     return html.Div([
         html.Div(id="display", style={'textAlign': 'center'}),
         WindowBreakpoints(
@@ -542,6 +575,7 @@ def sync_table_edits(cellValueChanged, current_grid_data):
         raise dash.exceptions.PreventUpdate
 
     changed_col = cellValueChanged[0]['colId']
+    user_friendly_col = headerNames.get(changed_col, changed_col)
     changed_row_index = cellValueChanged[0]['rowIndex']
     user_friendly_row = changed_row_index + 1
     new_value_raw = cellValueChanged[0]['value']
@@ -555,23 +589,23 @@ def sync_table_edits(cellValueChanged, current_grid_data):
     # Update the value in the grid data first
     if changed_col in ['sample_start', 'sample_end']:
         if new_value_raw:
-            strict_dt_regex = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+            strict_dt_regex = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$"
 
             if not re.fullmatch(strict_dt_regex, str(new_value_raw)):
                 updated_grid_data[changed_row_index][changed_col] = old_value if old_value is not None else ""
-                feedback_message = f"Invalid datetime format for '{changed_col}' at Row {user_friendly_row}. Expected format: YYYY-MM-DD HH:MM:SS."
+                feedback_message = f"Invalid datetime format for {user_friendly_col} at Row {user_friendly_row}. Expected format: YYYY-MM-DD HH:MM."
                 feedback_style = {"color": "red"}
             else:
                 updated_grid_data[changed_row_index][changed_col] = new_value_raw
-                feedback_message = f"Column '{changed_col}' at Row {user_friendly_row}, changed from '{old_value}' to '{new_value_raw}'."
+                feedback_message = f"{user_friendly_col} at Row {user_friendly_row}, changed from '{old_value}' to '{new_value_raw}'."
                 feedback_style = {"color": "green"}
         else:
             updated_grid_data[changed_row_index][changed_col] = "" # Keep as empty string if user clears it in UI
-            feedback_message = f"Column '{changed_col}' at Row {user_friendly_row}, value cleared."
+            feedback_message = f"{user_friendly_col} at Row {user_friendly_row}, value cleared."
             feedback_style = {"color": "green"}
     else:
         updated_grid_data[changed_row_index][changed_col] = new_value_raw
-        feedback_message = f"Column '{changed_col}' at Row {user_friendly_row}, changed from '{old_value}' to '{new_value_raw}'."
+        feedback_message = f"{user_friendly_col} at Row {user_friendly_row}, changed from '{old_value}' to '{new_value_raw}'."
         feedback_style = {"color": "green"}
 
     # After updating the changed cell, check if sampleid needs to be updated
@@ -638,7 +672,7 @@ app.clientside_callback(
     prevent_initial_call=True
 )
 
-# %% Callback for the Upload Data button with duplicates checking
+# %% Upload Data button with duplicates checking
 @app.callback(
     Output("edit-confirmation", "children", allow_duplicate=True),
     Output("overwrite-confirm-modal", "is_open"),
@@ -651,11 +685,20 @@ def upload_data_to_database(n_clicks):
 
     if n_clicks is None:
         raise dash.exceptions.PreventUpdate
+    
+    
+    siteid_map = {
+        f"{row.description} ({row.siteid})": row.siteid
+        for _, row in sites.query("projectid == 'MERCURY_PASSIVE'").iterrows()
+    }
 
+    
+    # Check if table is empty
     df_to_upload = database_df[database_df['samplerid'].astype(str).str.strip() != ''].copy()
     if df_to_upload.empty:
         return html.Div("No valid data to upload. All entries are empty or have empty Sampler IDs.", style={"color": "orange"}), False, []
-
+    
+    # Convert columns to datetime
     for col in ['sample_start', 'sample_end', 'shipped_date', 'return_date']:
         df_to_upload[col] = pd.to_datetime(df_to_upload[col], errors='coerce')
 
@@ -668,7 +711,8 @@ def upload_data_to_database(n_clicks):
     
         # Format to ensure no millisecond or tzinfo remnants
         df_to_upload[col] = df_to_upload[col].dt.strftime("%Y-%m-%d %H:%M:%S")
-
+        
+    # Upload
     try:
         existing_sampleids_df = pd.read_sql_query("SELECT sampleid FROM pas_tracking", mercury_sql_engine)
         existing_sampleids = set(existing_sampleids_df['sampleid'].dropna().astype(str).tolist())
@@ -679,7 +723,8 @@ def upload_data_to_database(n_clicks):
         if duplicate_mask.any():
             duplicate_df = df_to_upload[duplicate_mask].copy()
             return dash.no_update, True, duplicate_df.to_dict("records")
-
+        
+        df_to_upload['siteid'] = df_to_upload['siteid'].map(siteid_map).fillna(df_to_upload['siteid']) # change column to only contain siteid
         df_to_upload.to_sql('pas_tracking', mercury_sql_engine, if_exists='append', index=False)
         return html.Div(f"Successfully uploaded {len(df_to_upload)} new entries to 'pas_tracking' table!", style={"color": "green"}), False, []
 
